@@ -1,0 +1,96 @@
+---
+title: "signac_merge"
+output: 
+  html_document:
+    df_print: paged
+  html_notebook:
+editor_options:
+  chunk_output_type: inline
+--- 
+This is a workflow to integrate different embryonic stages from same origin.
+https://satijalab.org/signac/articles/merging.html
+
+```{r setup, message=FALSE, warning=FALSE, echo=FALSE}
+library(Signac); library(Seurat); library(harmony)
+library(GenomeInfoDb); library(ensembldb); library(GenomicRanges)
+library(ggplot2); library(patchwork)
+
+set.seed(1234)
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+sample.name <- c("L21","L24","L27")
+data_path <- paste0("/scicore/home/tschoppp/GROUP/mapped_data/",c("10x_atac_12012021/","10x_atac_10042020/","10x_atac_10042020/"))
+anno_path <- "/scicore/home/tschoppp/GROUP/references/genomes/ENS_g6/chicken_Gg6_atac_pre/"
+rna_path <- "/scicore/home/tschoppp/GROUP/lab/Chris.shared/for.Menghan"
+rds_path <- paste0("/scicore/home/tschoppp/wang0007/scATAC/reslt_scATAC/clustering/",c("L21_atac_020321.rds","L24_atac_020321.rds","L27_atac_020321.rds"))
+select.resolution=c(0.6,0.4,0.4)
+
+```
+
+## merge objects
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+for(i in 1:length(samples)){
+  tmp.samples=names(samples)[i]
+  tmp.sampleid=samples[[tmp.samples]]
+  tmp.sampname=sample.name[tmp.sampleid]
+  
+  # read in each stage
+  tmp.1=readRDS(rds_path[tmp.sampleid[1]]); tmp.2=readRDS(rds_path[tmp.sampleid[2]])
+  tmp.1@active.assay="bins";tmp.2@active.assay="bins"
+  tmp.1$dataset=tmp.sampname[1];tmp.2$dataset=tmp.sampname[2]
+  
+  # merge
+  combined <- merge(
+    x = tmp.1,
+    y = list(tmp.2),
+    add.cell.ids = c(tmp.sampname)
+  )
+  
+  # dimension reduction
+  DefaultAssay(combined) <- 'bins'
+  combined <- RunTFIDF(combined)
+  combined <- FindTopFeatures(combined, min.cutoff = 'q99.9'); top=VariableFeatures(combined)
+  combined <- FindTopFeatures(combined, min.cutoff = 'q25')
+  VariableFeatures(combined)=VariableFeatures(combined)[!(VariableFeatures(combined) %in% top)]; length(VariableFeatures(combined))
+  combined <- RunSVD(object = combined,assay = 'bins',
+                     reduction.key = 'LSI_',reduction.name = 'lsi_bin')
+  DepthCor(combined)
+  combined <- RunUMAP(object = combined, reduction = 'lsi_bin', dims = 2:30)
+  combined[["umap_bin"]] = CreateDimReducObject(embeddings = Embeddings(combined, "umap"),assay = "bins")
+  
+  # harmony batch correction
+  if(tmp.samples!="somite"){
+    hm.integrated <- RunHarmony(
+      object = combined,
+      group.by.vars = 'dataset', reduction = 'lsi_bin',
+      assay.use = 'bins', project.dim = FALSE
+    )
+    reduction.used='harmony'
+  }else{
+    hm.integrated <- combined
+    reduction.used='lsi'
+  }
+  hm.integrated <- RunUMAP(hm.integrated, dims = 2:30, reduction = reduction.used)
+  
+  # plot (internal stochastic)
+  p1 <-  DimPlot(combined, group.by = 'dataset', reduction = "umap_bin", pt.size = 0.1) + ggplot2::ggtitle("Unintegrated")
+  p2 <- DimPlot(hm.integrated, group.by = 'dataset', pt.size = 0.1) + ggplot2::ggtitle("Harmony integration")
+  print(p1 + p2)
+
+  # do clustering
+  hm.integrated <- FindNeighbors(object = hm.integrated, reduction = reduction.used, dims = 2:30)
+  hm.integrated <- FindClusters(object = hm.integrated, verbose = FALSE, algorithm = 4, resolution = select.resolution[i], random.seed = 1234)
+  hm.integrated$broad=hm.integrated$seurat_clusters
+  
+  # save
+  saveRDS(hm.integrated,paste0("~/scATAC/integration/",tmp.samples,"_atac_integrated",format(Sys.Date(), "%d%m%y"),".rds"))
+  
+}
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+sessionInfo()
+```
+

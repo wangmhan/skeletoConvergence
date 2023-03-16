@@ -1,0 +1,176 @@
+---
+title: "scATAC_limb_Analysis"
+output: 
+  html_document:
+    df_print: paged
+  html_notebook:
+editor_options:
+  chunk_output_type: inline
+--- 
+This is a workflow to integrate L21 and L24, L27.
+https://satijalab.org/signac/articles/merging.html
+
+```{r setup, message=FALSE, warning=FALSE, echo=FALSE}
+library(Signac); library(Seurat); library(dplyr)
+library(GenomeInfoDb); library(ensembldb); library(GenomicRanges)
+library(ggplot2); library(patchwork)
+library(sva); library(pheatmap); library(scales)
+library(nnls);library(glmnet)
+source("~/Rscript/testGit/scATAC/integration_function.R")
+
+set.seed(1234)
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+samples=list()
+samples[["limb"]]=c(1,2);samples[["nasal"]]=c(3,4);samples[["somite"]]=c(5,6)
+sample.name <- c("L21","L24","N15","N18","S12","S15")
+data.name <- c("10x_atac_12012021","10x_atac_10042020","10x_atac_12012021","10x_atac_10042020","10x_atac_12012021","10x_atac_12012021")
+anno_path <- "/scicore/home/tschoppp/GROUP/references/genomes/ENS_g6/chicken_Gg6_atac_pre/"
+rna_path <- "~/scRNA/clustering"
+rds_path <- paste0("~/scATAC/integration/",paste0(names(samples),"_atac_integrated010721.rds"))
+scrna.name = c("forelimb","frontonasal","somites")
+select.resolution=0.4
+select.cls=list()
+select.cls[["limb"]]=c("1","2","3","4","5","6","8","9","12");select.cls[["nasal"]]=c("2","3","4");select.cls[["somite"]]=c("1")
+
+gene.info=read.table("~/scRNA/ensembl97_geneinfo.txt", sep="\t",header = TRUE,row.names = 1,stringsAsFactors = FALSE)
+gene.info[gene.info$genename=="","genename"]=rownames(gene.info[gene.info$genename=="",])
+gene.info$genename=toupper(gene.info$genename)
+
+my.W = read.table("~/scRNA/ensembl97_wgenes.txt",sep="\t",header = TRUE,row.names = 1,stringsAsFactors = FALSE)
+
+db <- ensDbFromGtf(gtf=paste0(anno_path,"Gg6_extended_200819.filter.gtf"), organism = "Gallus_gallus", genomeVersion = "GRCg6a", version = 97)
+edb <- EnsDb(db); rm(db)
+gene.ranges <- genes(edb); length(gene.ranges$gene_id)
+annotations <- gene.ranges[gene.ranges$gene_biotype == 'protein_coding', ]
+geneinfo = data.frame(gene_id=gene.ranges$gene_id,gene_name=gene.ranges$gene_name)
+
+library(BSgenome.Ggallus.ensembl.galGal6)
+genome=seqlengths(BSgenome.Ggallus.ensembl.galGal6)
+genome=genome[names(genome) %in% c(1:33,"Z")]
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+for(i in 1:length(samples)){
+  tmp.samples=names(samples)[i]
+  tmp.sampleid=samples[[tmp.samples]]
+  tmp.sampname=sample.name[tmp.sampleid]
+  
+  if(tmp.samples!="somite"){
+    reduction.used='harmony'
+  }else{
+    reduction.used='lsi_bin'
+  }
+  
+  # read in signac project
+  hm.integrated=readRDS(rds_path[i])
+  
+  # subset
+  DefaultAssay(hm.integrated)="bins"
+  Idents(hm.integrated)=hm.integrated$broad
+  hm.integrated=subset(hm.integrated,idents=select.cls[[tmp.samples]])
+  Idents(hm.integrated)=droplevels(Idents(hm.integrated))
+  
+  hm.integrated <- RunUMAP(hm.integrated, dims = 2:30, reduction = reduction.used)
+  p1=DimPlot(hm.integrated,label = TRUE)+NoLegend()
+  hm.integrated <- FindNeighbors(object = hm.integrated, reduction = reduction.used, dims = 2:30)
+  hm.integrated <- FindClusters(object = hm.integrated, verbose = FALSE, algorithm = 4, resolution = select.resolution, random.seed = 1234)
+  Idents(hm.integrated)=hm.integrated$seurat_clusters
+  
+  # load scRNA data
+  mtx.fl_rna = readRDS(paste0(rna_path,"/subset_",tmp.samples,".rds"))
+  my.meta=readRDS(paste0("~/scRNA/clustering/meta_",tmp.samples,".rds"))
+  mtx.fl_rna=AddMetaData(mtx.fl_rna,metadata = my.meta[rownames(mtx.fl_rna@meta.data),])
+  DefaultAssay(mtx.fl_rna) <- 'integrated'
+  Idents(mtx.fl_rna)=mtx.fl_rna$annotation_fine
+  
+  ##################
+  ## method1: label transfer
+  thres <- 0.4
+  hm.integrated@meta.data$cls=factor(Idents(hm.integrated), levels=c(1:max(as.numeric(Idents(hm.integrated)))))
+  prediction2=getpredict(atac=hm.integrated,rna=mtx.fl_rna,usedatac = 'activity_combat', usedrna = 'integrated',embed.transfer=reduction.used)
+  
+  # plot
+  hist(prediction2$prediction.score.max,n=100) #,main="leiden 0.2"
+  abline(v=thres, col="red", lty=2, lwd=3)
+  
+  used=Idents(mtx.fl_rna)
+  rcolor2=c("grey",hue_pal()(length(levels(used))))
+  names(rcolor2)=c("NA",levels(used))
+  hm.integrated$cls=droplevels(hm.integrated$seurat_clusters)
+  stackedbar(input=prediction2,thres=thres,method="ArchR",rcolor=rcolor2)
+  
+  # show the predicted id on UMAP
+  hm.integrated <- AddMetaData(hm.integrated, metadata = prediction2)
+  hm.integrated@meta.data[hm.integrated@meta.data$prediction.score.max<thres,"predicted.id"]="NA"
+  p1=DimPlot(hm.integrated, reduction = "umap",group.by = "cls",label = T)+NoLegend()
+  p2=DimPlot(hm.integrated, reduction = "umap",group.by = "predicted.id",cols = rcolor2)
+  p1+p2
+  
+  # annotation for each cluster
+  table(prediction2$prediction.score.max > thres)
+  hm.integrated <- AddMetaData(object = hm.integrated, metadata = prediction2$predicted.id,col.name = "predictedId")
+  hm.integrated <- AddMetaData(object = hm.integrated, metadata = prediction2$prediction.score.max,col.name = "predictionScoreMax")
+  predict <- hm.integrated@meta.data[hm.integrated@meta.data$predictionScoreMax > thres,]
+  table(hm.integrated@meta.data$cls)*0.25; 
+  table(predict$predictedId,predict$cls); table(predict$cls)*0.5
+  
+  ##################
+  ## method2: NNLS regression
+  matrix.rna=GetAssayData(mtx.fl_rna,assay = "RNA")
+  matrix.atac=GetAssayData(hm.integrated, assay = "activity")
+  matrix.rna=as(matrix.rna,"matrix")
+  matrix.atac=as(matrix.atac,"matrix")
+  
+  #remove non-expressed
+  gene.rna=rownames(matrix.rna[rowSums(matrix.rna>0) > 0.005*ncol(matrix.rna),]);length(gene.rna)
+  gene.atac=rownames(matrix.atac[rowSums(matrix.atac>0) > 0.005*ncol(matrix.atac),]);length(gene.atac)
+  #keep only common genes
+  expressed=gene.rna[gene.rna %in% gene.atac];length(expressed)
+  
+  #for scRNA
+  DefaultAssay(mtx.fl_rna)="RNA"; Idents(mtx.fl_rna)=mtx.fl_rna$annotation_fine
+  dap.rna = FindAllMarkers(object = mtx.fl_rna, min.pct = 0.1, logfc.threshold =  0.25, 
+                           assay = "RNA", test.use = 'LR', #only.pos = T, 
+                           latent.vars = c("CC.Difference","orig.ident"), return.thresh = 0.05,verbose = F)
+  dap.rna = dap.rna[(!is.na(dap.rna$p_val) & dap.rna$p_val_adj < 0.05) & dap.rna$avg_log2FC>0,]
+  dap.rna = dap.rna[order(dap.rna$cluster,-dap.rna$avg_log2FC),]
+  
+  dap = FindAllMarkers(object = hm.integrated, min.pct = 0.1, logfc.threshold =  0.25,
+                       assay = "activity", test.use = 'LR', return.thresh = 0.05, #only.pos = T, 
+                       latent.vars = c("nCount_bins","dataset"), verbose = F)
+  dap = dap[!is.na(dap$p_val) & dap$p_val_adj < 0.05,]
+  dap.atac=dap[dap$avg_log2FC > 0,]
+  
+  #get top ones
+  n=50
+  daptop.rna = dap.rna %>% group_by(cluster) %>% top_n(n,avg_log2FC)
+  daptop.atac = dap.atac %>% group_by(cluster) %>% top_n(n,avg_log2FC)
+  daptop.all=c(daptop.atac$gene,daptop.rna$gene); daptop.all=daptop.all[!duplicated(daptop.all)]
+  daptop.all=daptop.all[daptop.all %in% expressed]
+  dap.rna$type="scRNA";dap.atac$type="scATAC"
+  daps=rbind(dap.rna[,c(1:8,11)],dap.atac)
+  
+  avg.rna = AverageExpression(mtx.fl_rna,assays = "RNA",features = expressed)[["RNA"]]
+  avg.atac = AverageExpression(hm.integrated,assays = "activity",features = expressed)[["activity"]]
+  coeff.avg=getMtpNnls(select=daptop.all,test.rna=avg.rna,test.atac=avg.atac,norm=F)
+  rownames(coeff.avg)=paste0("RNA_",rownames(coeff.avg))
+  pheatmap(coeff.avg, cluster_cols = F, cluster_rows = F)
+  pheatmap(coeff.avg, cluster_cols = T, cluster_rows = F)
+  
+  # plot
+  stackedbar.new(input=hm.integrated@meta.data,cname=c("dataset","annonew"))
+  
+  # resave
+  saveRDS(hm.integrated,paste0("~/scATAC/integration/",tmp.samples,"_atac_intgtFine",format(Sys.Date(), "%d%m%y"),".rds"))
+  
+}
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+sessionInfo()
+```
+
+
