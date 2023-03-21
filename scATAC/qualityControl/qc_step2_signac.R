@@ -1,15 +1,3 @@
----
-title: "clustering_step1"
-output: 
-  html_document:
-    df_print: paged
-  html_notebook:
-editor_options:
-  chunk_output_type: inline
---- 
-This is the standard workflow for scATAC analysis
-
-```{r setup, message=FALSE, warning=FALSE, echo=FALSE}
 library(Signac); library(Seurat); library(dplyr)
 library(GenomeInfoDb); library(ensembldb)
 library(ggplot2); library(patchwork)
@@ -19,9 +7,6 @@ sample.name <- c("L21","L24","N15","N18","S12","S15")
 data.name <- c("10x_atac_12012021","10x_atac_10042020","10x_atac_12012021","10x_atac_10042020","10x_atac_12012021","10x_atac_12012021")
 anno_path <- "/scicore/home/tschoppp/GROUP/references/genomes/ENS_g6/chicken_Gg6_atac_pre/"
 
-```
-
-```{r, message=FALSE, warning=FALSE, echo=TRUE}
 library(BSgenome.Ggallus.ensembl.galGal6)
 genome=seqlengths(BSgenome.Ggallus.ensembl.galGal6)
 
@@ -33,9 +18,7 @@ annotations <- gene.ranges[gene.ranges$gene_biotype == 'protein_coding', ]
 #remove MT, W chromosome and other small contigs
 #dropSeqlevels(gr, "W")
 genome=genome[names(genome) %in% c(1:33,"Z")]
-```
 
-```{r, message=FALSE, warning=FALSE, echo=TRUE}
 for(i in 1:length(sample.name)){
   data_path <- paste0("/scicore/home/tschoppp/GROUP/mapped_data/",data.name[i],"/",sample.name[i],"/outs/")
   
@@ -104,11 +87,6 @@ for(i in 1:length(sample.name)){
   saveRDS(mtx.fl,paste0("~/scATAC/reslt_scATAC/clustering/",sample.name[i],"_atac_",format(Sys.Date(), "%d%m%y"),".rds"))
   
 }
-```
 
-## log
-
-```{r, message=FALSE, warning=FALSE, echo=TRUE}
 sessionInfo()
-```
 
