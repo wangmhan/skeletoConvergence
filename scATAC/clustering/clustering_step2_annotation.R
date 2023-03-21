@@ -1,14 +1,3 @@
----
-title: "scATAC_cluster_annotation"
-output: 
-  html_document:
-    df_print: paged
-  html_notebook:
-editor_options:
-  chunk_output_type: inline
---- 
-
-```{r setup, message=FALSE, warning=FALSE, echo=FALSE}
 library(Signac); library(Seurat); library(dplyr)
 library(GenomeInfoDb); library(ensembldb); library(GenomicRanges)
 library(ggplot2); library(patchwork); library(reshape2)
@@ -17,9 +6,7 @@ library(nnls);library(glmnet)
 source("~/Rscript/testGit/scATAC/integration_function.R")
 
 set.seed(1234)
-```
 
-```{r, message=FALSE, warning=FALSE, echo=TRUE}
 samples=list()
 samples[["limb"]]=c(1,2);samples[["nasal"]]=c(3,4);samples[["somite"]]=c(5,6)
 sample.name <- c("L21","L24","N15","N18","S12","S15")
@@ -45,9 +32,6 @@ library(BSgenome.Ggallus.ensembl.galGal6)
 genome=seqlengths(BSgenome.Ggallus.ensembl.galGal6)
 genome=genome[names(genome) %in% c(1:33,"Z")]
 
-```
-
-```{r, message=FALSE, warning=FALSE, echo=TRUE}
 for(i in 1:length(samples)){
   tmp.samples=names(samples)[i]
   tmp.sampleid=samples[[tmp.samples]]
@@ -173,14 +157,9 @@ for(i in 1:length(samples)){
   # plot
   stackedbar.new(input=hm.integrated@meta.data,cname=c("dataset","annonew"))
   
-  # resave
+  # save
   saveRDS(hm.integrated,paste0("~/scATAC/integration/",tmp.samples,"_atac_integrated",format(Sys.Date(), "%d%m%y"),".rds"))
   
-}
-
-```
-
-```{r, message=FALSE, warning=FALSE, echo=TRUE}
 sessionInfo()
-```
+
 
