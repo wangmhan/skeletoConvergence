@@ -1,16 +1,3 @@
----
-title: "qc_step1_ArchR"
-output: 
-  html_document:
-    df_print: paged
-  html_notebook:
-editor_options:
-  chunk_output_type: inline
----
-
-The gene activity matrix, and doublet score are calculated by ArchR.
-
-```{r setup, message=FALSE, warning=FALSE, echo=FALSE}
 library(ArchR); packageVersion("ArchR")
 library(GenomeInfoDb); library(ensembldb)
 set.seed(1234)
@@ -19,9 +6,6 @@ sample.name <- c("L21","L24","N15","N18","S12","S15")
 data.name <- c("10x_atac_12012021","10x_atac_10042020","10x_atac_12012021","10x_atac_10042020","10x_atac_12012021","10x_atac_12012021")
 anno_path <- "/scicore/home/tschoppp/GROUP/references/genomes/ENS_g6/chicken_Gg6_atac_pre/"
 
-```
-
-```{r, message=FALSE, warning=FALSE, echo=TRUE}
 for(i in 1:length(sample.name)){
   data_path <- paste0("/scicore/home/tschoppp/GROUP/mapped_data/",data.name[i],"/",sample.name[i],"/outs/")
   
@@ -70,8 +54,6 @@ for(i in 1:length(sample.name)){
   ## save
   saveArchRProject(ArchRProj = proj,outputDirectory=paste0("~/scATAC/reslt_scATAC/clustering/",sample.name[i]))
 }
-```
 
-```{r, message=FALSE, warning=FALSE, echo=TRUE}
 sessionInfo()
-```
+
