@@ -1,24 +1,9 @@
----
-title: "signac_merge"
-output: 
-  html_document:
-    df_print: paged
-  html_notebook:
-editor_options:
-  chunk_output_type: inline
---- 
-This is a workflow to integrate different embryonic stages from same origin.
-https://satijalab.org/signac/articles/merging.html
-
-```{r setup, message=FALSE, warning=FALSE, echo=FALSE}
 library(Signac); library(Seurat); library(harmony)
 library(GenomeInfoDb); library(ensembldb); library(GenomicRanges)
 library(ggplot2); library(patchwork)
 
 set.seed(1234)
-```
 
-```{r, message=FALSE, warning=FALSE, echo=TRUE}
 sample.name <- c("L21","L24","L27")
 data_path <- paste0("/scicore/home/tschoppp/GROUP/mapped_data/",c("10x_atac_12012021/","10x_atac_10042020/","10x_atac_10042020/"))
 anno_path <- "/scicore/home/tschoppp/GROUP/references/genomes/ENS_g6/chicken_Gg6_atac_pre/"
@@ -26,11 +11,8 @@ rna_path <- "/scicore/home/tschoppp/GROUP/lab/Chris.shared/for.Menghan"
 rds_path <- paste0("/scicore/home/tschoppp/wang0007/scATAC/reslt_scATAC/clustering/",c("L21_atac_020321.rds","L24_atac_020321.rds","L27_atac_020321.rds"))
 select.resolution=c(0.6,0.4,0.4)
 
-```
-
 ## merge objects
 
-```{r, message=FALSE, warning=FALSE, echo=TRUE}
 for(i in 1:length(samples)){
   tmp.samples=names(samples)[i]
   tmp.sampleid=samples[[tmp.samples]]
@@ -88,9 +70,7 @@ for(i in 1:length(samples)){
   saveRDS(hm.integrated,paste0("~/scATAC/integration/",tmp.samples,"_atac_integrated",format(Sys.Date(), "%d%m%y"),".rds"))
   
 }
-```
 
-```{r, message=FALSE, warning=FALSE, echo=TRUE}
 sessionInfo()
-```
+
 
