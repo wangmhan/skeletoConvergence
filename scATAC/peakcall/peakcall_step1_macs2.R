@@ -1,19 +1,5 @@
----
-title: "peakcall_step1"
-output: 
-  html_document:
-    df_print: paged
-  html_notebook:
-editor_options:
-  chunk_output_type: inline
---- 
-
-```{r setup, message=FALSE, warning=FALSE, echo=FALSE}
 library(Signac); library(Seurat)
 
-```
-
-```{r, message=FALSE, warning=FALSE, echo=TRUE}
 samples=list()
 samples[["limb"]]=c(1,2);samples[["nasal"]]=c(3,4);samples[["somite"]]=c(5,6)
 sample.name <- c("L21","L24","N15","N18","S12","S15")
@@ -21,9 +7,6 @@ data.name <- c("10x_atac_12012021","10x_atac_10042020","10x_atac_12012021","10x_
 anno_path <- "/scicore/home/tschoppp/GROUP/references/genomes/ENS_g6/chicken_Gg6_atac_pre/"
 rds_path <- paste0("~/scATAC/integration/",paste0(names(samples),"_atac_integrated010721_meta.rds"))
 
-```
-
-```{r, message=FALSE, warning=FALSE, echo=TRUE}
 for(i in 1:length(samples)){
   ## read in meta file
   tmp.samples=names(samples)[i]
@@ -82,14 +65,6 @@ for(i in 1:length(samples)){
   }
   
 }
-```
 
-```{r, message=FALSE, warning=FALSE, echo=TRUE}
-
-```
-
-## log
-
-```{r, message=FALSE, warning=FALSE, echo=TRUE}
 sessionInfo()
-```
+
