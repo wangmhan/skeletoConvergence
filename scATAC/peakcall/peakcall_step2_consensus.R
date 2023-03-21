@@ -1,19 +1,6 @@
----
-title: "peakcall_step2"
-output: 
-  html_document:
-    df_print: paged
-  html_notebook:
-editor_options:
-  chunk_output_type: inline
---- 
- 
-```{r setup, message=FALSE, warning=FALSE, echo=FALSE}
 library(Signac); library(Seurat)
+library(ArchR)
 
-```
-
-```{r, message=FALSE, warning=FALSE, echo=TRUE}
 samples=list()
 samples[["limb"]]=c(1,2);samples[["nasal"]]=c(3,4);samples[["somite"]]=c(5,6)
 sample.name <- c("L21","L24","N15","N18","S12","S15")
@@ -22,9 +9,6 @@ anno_path <- "/scicore/home/tschoppp/GROUP/references/genomes/ENS_g6/chicken_Gg6
 meta_path <- paste0("~/scATAC/integration/",paste0(names(samples),"_atac_integrated010721_meta.rds"))
 rds_path <- paste0("~/scATAC/integration/",paste0(names(samples),"_atac_integrated010721.rds"))
 
-```
-
-```{r, message=FALSE, warning=FALSE, echo=TRUE}
 ## consensus peakset for each embryonic origin
 for(i in 1:length(samples)){
   ## read in meta file
@@ -68,9 +52,6 @@ for(i in 1:length(samples)){
   saveRDS(unionPeaks,paste0("~/scATAC/peakcall/",tmp.samples,"/nonredundantpeaks_",tmp.samples,".rds"))
 }
 
-```
-
-```{r, message=FALSE, warning=FALSE, echo=TRUE}
 ## consensus peakset for all 3 origins
 
 # read in peakset
@@ -92,9 +73,6 @@ for(i in glist[!(glist %in% "somite")]){
 # only keep autosomes and chrZ
 remainPeaks=keepSeqlevels(unionPeaks,c(1:28,30:33,"Z"),pruning.mode="coarse"); length(remainPeaks)
 
-```
-
-```{r, message=FALSE, warning=FALSE, echo=TRUE}
 ## plot
 mtx.stat=data.frame(peak_cls=peaks$peak_called_in,
                origin="overall")
@@ -108,17 +86,9 @@ g1=g + geom_bar(aes(fill = peak_cls))  +
   ylab("peak") + xlab("origin")
 g1
 
-```
-
-```{r, message=FALSE, warning=FALSE, echo=TRUE}
 ## save
 saveRDS(remainPeaks,paste0("~/scATAC/peakcall/nonredundantpeaks_combined.rds"))
 
-```
-
-## log
-
-```{r, message=FALSE, warning=FALSE, echo=TRUE}
 sessionInfo()
-```
+
 
