@@ -1,0 +1,339 @@
+---
+title: "motifenrich_assignToTF"
+output: 
+  html_document:
+    df_print: paged
+  html_notebook:
+editor_options:
+  chunk_output_type: inline
+--- 
+ 
+```{r setup, message=FALSE, warning=FALSE, echo=FALSE}
+library(TFBSTools);library(JASPAR2020)
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+samples=list()
+samples[["limb"]]=c(1,2);samples[["nasal"]]=c(3,4);samples[["somite"]]=c(5,6)
+sample.name <- c("L21","L24","N15","N18","S12","S15")
+data.name <- c("10x_atac_12012021","10x_atac_10042020","10x_atac_12012021","10x_atac_10042020","10x_atac_12012021","10x_atac_12012021")
+anno_path <- "/scicore/home/tschoppp/GROUP/references/genomes/ENS_g6/chicken_Gg6_atac_pre/"
+meta_path <- paste0("~/scATAC/integration/",paste0(names(samples),"_atac_integrated010721_meta.rds"))
+rds_path <- paste0("~/scATAC/integration/",paste0(names(samples),"_atac_integrated010721.rds"))
+
+cls.all=list()
+cls.all[["limb"]]=c("7","10","11","13","14","15","sub_1","sub_2","sub_3","sub_4","sub_5","sub_6","sub_7","Mschym")
+cls.all[["nasal"]]=c(1,5:15,"sub_1","sub_2","sub_3","sub_4","sub_5","sub_6","Mschym")
+cls.all[["somite"]]=c(2:14,"sub_2","sub_3","sub_4","sub_5","sub_6","Mschym")
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+#####################################
+## change format of motif database for STAMP
+#####################################
+outfile<-("/scicore/home/tschoppp/wang0007/references/motifs/motifs_combine.pssm")
+outfile2<-("/scicore/home/tschoppp/wang0007/references/motifs/motifs_combineID.pssm")
+pfmall=list()
+outfileMatch=NULL
+
+# keep only the ones in chicken genome: 
+mid2name=read.table("~/references/motifs/motif_id2name.txt",sep = "\t",header = T,stringsAsFactors = F);dim(mid2name)
+rownames(mid2name)=mid2name$motif_id
+mf.keep=mid2name[mid2name$include=="Y",]
+
+###############
+# JASPAR 2020
+pfm <- getMatrixSet(
+  x = JASPAR2020,
+  opts = list(tax_group = "vertebrates", all_versions = FALSE)
+);length(pfm@listData)
+header=NULL
+for(i in 1:length(names(pfm.jp@listData))){
+  tmp2=t(pfm.jp[[i]]@profileMatrix)
+  #get essential part
+  tmp1=paste0(">jaspar20_",pfm.jp[[i]]@name,"_",pfm.jp[[i]]@ID) #@tags$remap_tf_name
+  tmp3=paste0(">jaspar20_",pfm.jp[[i]]@ID)
+  if(!(gsub(">","",tmp3) %in% mf.keep$motif_id)){ next }
+  header=c(header,pfm.jp[[i]]@ID,pfm.jp[[i]]@name)
+  #write out
+  cat(tmp1,file=outfile,sep="\n",append=TRUE)
+  write.table(tmp2,file=outfile,sep="\t",append=TRUE,
+              row.names = F,col.names = F,quote = F)
+  cat(tmp3,file=outfile2,sep="\n",append=TRUE)
+  write.table(tmp2,file=outfile2,sep="\t",append=TRUE,
+              row.names = F,col.names = F,quote = F)
+  #generate PWMatrix
+  tmp.mtx=PWMatrix(ID=pfm.jp[[i]]@ID, 
+                   name=pfm.jp[[i]]@name, 
+                   bg=c(A=0.25, C=0.25, G=0.25, T=0.25),
+                   tags=list(tax_group="vertebrates"),
+                   profileMatrix=pfm.jp[[i]]@profileMatrix)
+  pfmall[[gsub(">","",tmp3)]]=tmp.mtx
+  outfileMatch=c(outfileMatch,tmp1,tmp3)
+}
+header=matrix(header,ncol = 2, byrow = T);dim(header)
+header=as.data.frame.array(header)
+
+###############
+# CisBP2 chicken
+cisbp.info=read.table("/scicore/home/tschoppp/wang0007/references/motifs/cisbp2_chickeninfo_4pwmMatrix.txt",
+                      sep="\t",header = T,stringsAsFactors = F)
+motifs.uni=cisbp.info$Motif_ID[!duplicated(cisbp.info$Motif_ID)];length(motifs.uni)
+# first convert it to PWMmatrix
+cisbp.pwmtx=list()
+for(i in 1:length(motifs.uni)){
+  tmp.if=cisbp.info[cisbp.info$Motif_ID==motifs.uni[i],]
+  tmp.pwm=read.table(paste0("/scicore/home/tschoppp/wang0007/references/motifs/cisBP/pwms_all_motifs/",motifs.uni[i],".txt"), sep="\t",header = T,row.names = 1,stringsAsFactors = F)
+  if(nrow(tmp.pwm)==0){ next }
+  tmp.mtx=PWMatrix(ID=motifs.uni[i], name=paste0(tmp.if$TF_Name,collapse="/"), 
+                   bg=c(A=0.25, C=0.25, G=0.25, T=0.25),
+                   tags=list(family=tmp.if$Family_Name[1], species="Gallus gallus",
+                             tax_group="vertebrates",
+                             type=tmp.if$Motif_Type[1], pazar_tf_id=paste0(tmp.if$TF_Name,collapse="/"),
+                             DBID=paste0(tmp.if$DBID,collapse="/"), SR_Model=paste0(tmp.if$SR_Model,collapse="/")),
+                   profileMatrix=t(round(tmp.pwm,3))
+  )
+  cisbp.pwmtx[[motifs.uni[i]]]=tmp.mtx
+};length(cisbp.pwmtx)
+# then convert to PFMmatrix
+header.cb=NULL
+for(i in 1:length(pfm.cb)){
+  tmp2=t(pfm.cb[[i]]@profileMatrix)
+  #generate frequency matrix
+  for(j in 1:nrow(tmp2)){
+    tmp2[j,]=round(tmp2[j,]*20,0)
+  }
+  #get essential part
+  tmp1=paste0(">cisbp2_",pfm.cb[[i]]@name,"_",pfm.cb[[i]]@ID) #@tags$remap_tf_name
+  tmp3=paste0(">cisbp2_",pfm.cb[[i]]@ID)
+  if(!(gsub(">","",tmp3) %in% mf.keep$motif_id)){ next }
+  header.cb=c(header.cb,pfm.cb[[i]]@ID,pfm.cb[[i]]@name)
+  #write out
+  cat(tmp1,file=outfile,sep="\n",append=TRUE)
+  write.table(tmp2,file=outfile,sep="\t",append=TRUE,
+              row.names = F,col.names = F,quote = F)
+  cat(tmp3,file=outfile2,sep="\n",append=TRUE)
+  write.table(tmp2,file=outfile2,sep="\t",append=TRUE,
+              row.names = F,col.names = F,quote = F)
+  #generate PWMatrix
+  tmp.mtx=PWMatrix(ID=pfm.cb[[i]]@ID, 
+                   name=pfm.cb[[i]]@name, 
+                   bg=c(A=0.25, C=0.25, G=0.25, T=0.25),
+                   tags=list(tax_group="vertebrates"),
+                   profileMatrix=t(tmp2))
+  pfmall[[gsub(">","",tmp3)]]=tmp.mtx
+  outfileMatch=c(outfileMatch,tmp1,tmp3)
+}
+header.cb=matrix(header.cb,ncol = 2, byrow = T);dim(header.cb)
+header.cb=as.data.frame.array(header.cb)
+
+###############
+# Homer: http://homer.ucsd.edu/homer/custom.motifs
+tmp.hm=readLines("/scicore/home/tschoppp/wang0007/references/motifs/motifs_homer.pfm")
+num.id=NULL;num.title=NULL
+for(i in 1:length(tmp.hm)){
+  if(grepl(">",tmp.hm[i])){
+    num.title=c(num.title,tmp.hm[i])
+    num.id=c(num.id,i)
+  }
+}
+length(num.id);length(num.title)
+
+#we can first convert it to PWMmatrix
+homer.ppmtx=list()
+for(i in 1:length(num.id)){
+  tmp.if=unlist(strsplit(num.title[i],"\t"))
+  if(i==436){
+    tmp.pwm=unlist(strsplit(tmp.hm[(num.id[i]+1):length(tmp.hm)],"\t"))
+  }else{
+    tmp.pwm=unlist(strsplit(tmp.hm[(num.id[i]+1):(num.id[i+1]-1)],"\t"))
+  }
+  tmp.pwm=matrix(as.numeric(tmp.pwm),ncol = 4,byrow = T)
+  colnames(tmp.pwm)=c("A","C","G","T")
+  if(nrow(tmp.pwm)==0){ next }
+  tmp.mtx=PWMatrix(ID=paste0("homer_",i,"_",gsub(">","",tmp.if[1])), 
+                   name=gsub("/Homer","",tmp.if[2]), 
+                   bg=c(A=0.25, C=0.25, G=0.25, T=0.25),
+                   tags=list(tax_group="vertebrates",
+                             logOdds=tmp.if[3], logPval=tmp.if[4],
+                             occurInfo=tmp.if[6]),
+                   profileMatrix=t(tmp.pwm)
+  )
+  homer.ppmtx[[paste0("homer_",i,"_",gsub(">","",tmp.if[1]))]]=tmp.mtx
+};length(homer.ppmtx)
+
+header.hm=NULL
+for(i in 1:length(pfm.hm)){
+  tmp2=t(pfm.hm[[i]]@profileMatrix)
+  #generate frequency matrix
+  for(j in 1:nrow(tmp2)){
+    tmp2[j,]=round(tmp2[j,]*20,0)
+  }
+  #get essential part
+  tmp1=paste0(">homer_",pfm.hm[[i]]@name,"_",pfm.hm[[i]]@ID) #@tags$remap_tf_name
+  tmp3=paste0(">",pfm.hm[[i]]@ID)
+  if(!(gsub(">","",tmp3) %in% mf.keep$motif_id)){ next }
+  header.hm=c(header.hm,pfm.hm[[i]]@ID,pfm.hm[[i]]@name)
+  #write out
+  cat(tmp1,file=outfile,sep="\n",append=TRUE)
+  write.table(tmp2,file=outfile,sep="\t",append=TRUE,
+              row.names = F,col.names = F,quote = F)
+  cat(tmp3,file=outfile2,sep="\n",append=TRUE)
+  write.table(tmp2,file=outfile2,sep="\t",append=TRUE,
+              row.names = F,col.names = F,quote = F)
+  #generate PWMatrix
+  tmp.mtx=PWMatrix(ID=pfm.hm[[i]]@ID, 
+                   name=pfm.hm[[i]]@name, 
+                   bg=c(A=0.25, C=0.25, G=0.25, T=0.25),
+                   tags=list(tax_group="vertebrates"),
+                   profileMatrix=t(tmp2))
+  pfmall[[gsub(">","",tmp3)]]=tmp.mtx
+  outfileMatch=c(outfileMatch,tmp1,tmp3)
+}
+header.hm=matrix(header.hm,ncol = 2, byrow = T);dim(header.hm)
+header.hm=as.data.frame.array(header.hm)
+
+# save
+saveRDS(pfmall,"/scicore/home/tschoppp/wang0007/references/motifs/motifs_combine.rds")
+outfileMatch=matrix(gsub(">","",outfileMatch),ncol=2,byrow = T)
+write.table(outfileMatch,"~/references/motifs/motifs_combine.match",quote = F)
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+#####################################
+## change format of de novo motifs for STAMP
+#####################################
+for(i in 1:length(samples)){
+  tmp.samples=names(samples)[i]
+  
+  ##########################
+  ## read in de novo motifs
+  mf.all=list(); mf.each=list()
+  for(x in cls.all[[tmp.samples]]){
+    cls.id=x
+    fnames <- list.files(paste0("~/scATAC/motifenrich/",tmp.samples,"_res/homer_",tmp.samples,"_motifs_cls",cls.id,"/homerResults"), pattern="*.motif", full.names=TRUE)
+    fnames=fnames[!grepl("similar|RV",fnames)];length(fnames)
+    
+    tmp.ppmtx2=list()
+    for(j in 1:length(fnames)){
+      tmp.if=readLines(fnames[j], n=1)
+      tmp.if=unlist(strsplit(tmp.if,"\t"))
+      tmp.pval=unlist(strsplit(tmp.if[6],","))[3]
+      tmp.pval=as.numeric(gsub("P:","",tmp.pval))
+      if(tmp.pval >= 1e-11){next} #keep only the motifs with pval<1e-11
+      
+      tmp.pwm=read.table(fnames[j], sep="\t", skip = 1, stringsAsFactors = F)
+      if(nrow(tmp.pwm)==0){ next }
+      tmp.pwm=matrix(as.numeric(unlist(tmp.pwm)),ncol = 4,byrow = F)
+      colnames(tmp.pwm)=c("A","C","G","T")
+      
+      n=unlist(strsplit(fnames[j],"\\/"))[11];n=gsub("motif|\\.","",n)
+      tmp.mtx=PWMatrix(ID=paste0("cls",cls.id,"_",n,"_",gsub(">","",tmp.if[1])), 
+                       name=tmp.if[2], 
+                       bg=c(A=0.25, C=0.25, G=0.25, T=0.25),
+                       tags=list(species="Gallus gallus",tax_group="vertebrates",
+                                 logOdds=tmp.if[3], logPval=tmp.if[4],
+                                 occurInfo=tmp.if[6]),
+                       profileMatrix=t(tmp.pwm)
+      )
+      mf.all[[paste0("cls",cls.id,"_",n,"_",gsub(">","",tmp.if[1]))]]=tmp.mtx
+      tmp.ppmtx2[[paste0("cls",cls.id,"_",n,"_",gsub(">","",tmp.if[1]))]]=tmp.mtx
+    }
+    mf.each[[x]]=tmp.ppmtx2
+  };length(mf.all)
+  saveRDS(mf.all,paste0("~/scATAC/motifenrich/forStamp/homer_",tmp.samples,"_motifs_denovo_all.rds"))
+  saveRDS(mf.each,paste0("~/scATAC/motifenrich/forStamp/homer_",tmp.samples,"_motifs_denovo_each.rds"))
+  
+  #########################
+  #change to STAMP acceptable format
+  outfile<-paste0("~/scATAC/motifenrich/forStamp/homer_",tmp.samples,"_motifs_denovo_all.txt")
+  
+  for(j in 1:length(mf.all)){
+    mf.all[[j]]
+    tmp.pval=(gsub("P:","",unlist(strsplit(mf.all[[j]]@tags$occurInfo,","))[3]))
+    tmp1=paste0(">",mf.all[[j]]@ID,"\t",tmp.pval)
+    tmp2=t(mf.all[[j]]@profileMatrix)
+    #write out
+    cat(tmp1,file=outfile,sep="\n",append=TRUE)
+    write.table(tmp2,file=outfile,sep="\t",append=TRUE,
+                row.names = F,col.names = F,quote = F)
+  }
+  
+}
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+#####################################
+## run motif alignment for de novo motifs: STAMP
+#####################################
+# run on website, http://www.benoslab.pitt.edu/stamp/
+# input: homer_",tmp.samples,"_motifs_denovo_all.txt
+# known motif collections: motifs_combineID.pssm
+# use default parameters, save result in pdf version
+# use excel to generate a standard output: stamp_",tmp.samples,"_motifs_denovo_all.txt
+readStamp=function(stamp_res=stamp_res1,matchid=matchid){
+  if(nrow(stamp_res) %% 6 != 0){
+    print("Error! the row number of read in file is wrong!")
+  }
+  stamp_res$mf=rep(c(0,1,1,1,1,1),nrow(stamp_res)/6) 
+  aln=stamp_res[stamp_res$mf==0,"Motif"]  
+  stamp_res=stamp_res[stamp_res$mf==1,]  
+  stamp_res$mf=rep(aln,each=5)
+
+  #change 0 to 1-16, so that can convert to log format
+  stamp_res[stamp_res$Similarity==0,"Similarity"]=1e-16 #stamp_res$Similarity[order(stamp_res$Similarity)][1:5]
+  stamp_res$log10p=-log10(stamp_res$Similarity)
+  colnames(stamp_res)=c("motifID","Evalue","searchMF","negLog10_Evalue")
+
+  #add motif_name
+  rownames(matchid)=substr(matchid$V2,1,20)
+  stamp_res$motifName=""
+  stamp_res$motifName=matchid[stamp_res$motifID,"V1"]
+  return(stamp_res)
+}
+
+matchid=read.table("~/references/motifs/motifs_combine.match",stringsAsFactors = F)
+
+for(i in 1:length(samples)){
+  tmp.samples=names(samples)[i]
+  
+  # convert the format
+  res.tmp=read.table(paste0("~/scATAC/motifenrich/forStamp/stamp_",tmp.samples,"_motifs_denovo_all.txt"), sep = "\t",header = T)
+  
+  stamp.res=readStamp(stamp_res=res.tmp,matchid=matchid)
+  
+  #extract the best match in Homer result
+  denovo=readRDS(paste0("~/scATAC/motifenrich/forStamp/homer_",tmp.samples,"_motifs_denovo_all.rds"))
+  names(denovo)=substr(names(denovo),1,20)
+  
+  best.hm=NULL
+  for(i in 1:length(denovo)){
+    best.tmp=unlist(strsplit(denovo[[i]]@name,":"))[2]
+    best.hm=c(best.hm,best.tmp)
+  }
+  names(best.hm)=names(denovo)
+  
+  stamp.res$bestMatchHomer=""
+  for(i in 1:nrow(stamp.res)){
+    stamp.res$bestMatchHomer[i]=best.hm[stamp.res$searchMF[i]]
+  }
+  
+  write.table(stamp.res,paste0("~/scATAC/motifenrich/forStamp/stamp_",tmp.samples,"_res_all.txt"), sep = "\t", quote = F)
+}
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+
+```
+
+## log
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+sessionInfo()
+```
+
+

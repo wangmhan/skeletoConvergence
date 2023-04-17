@@ -1,0 +1,341 @@
+---
+title: "motifenrich_assignToTF"
+output: 
+  html_document:
+    df_print: paged
+  html_notebook:
+editor_options:
+  chunk_output_type: inline
+--- 
+ 
+```{r setup, message=FALSE, warning=FALSE, echo=FALSE}
+library(TFBSTools);library(JASPAR2020)
+source("~/Rscript/testGit/scATAC/motifenrich_function.R")
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+samples=list()
+samples[["limb"]]=c(1,2);samples[["nasal"]]=c(3,4);samples[["somite"]]=c(5,6)
+sample.name <- c("L21","L24","N15","N18","S12","S15")
+data.name <- c("10x_atac_12012021","10x_atac_10042020","10x_atac_12012021","10x_atac_10042020","10x_atac_12012021","10x_atac_12012021")
+anno_path <- "/scicore/home/tschoppp/GROUP/references/genomes/ENS_g6/chicken_Gg6_atac_pre/"
+meta_path <- paste0("~/scATAC/integration/",paste0(names(samples),"_atac_integrated010721_meta.rds"))
+rds_path <- paste0("~/scATAC/integration/",paste0(names(samples),"_atac_integrated010721.rds"))
+
+rna_path <- "/scicore/home/tschoppp/GROUP/lab/Chris.shared/for.Menghan"
+scrna.name = c("forelimb","frontonasal","somites")
+
+tfinfo=read.table("/scicore/home/tschoppp/wang0007/references/Gallus_gallus_TF_AnimalTFDB3_edited.txt",
+                  sep="\t",header = TRUE,stringsAsFactors = FALSE)
+tfinfo$Symbol=toupper(tfinfo$Symbol)
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+# derived from step7_motif2tfnames_limb.Rmd
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+###################
+# preset for limb
+
+mschym.rna=list()
+mschym.rna[["WNT5AMesenchyme"]]="sub_1"
+mschym.rna[["anteriorMesenchyme"]]="sub_2"
+mschym.rna[["chondrocytes"]]="sub_4"
+mschym.rna[["lateChondrocytes"]]="sub_5"
+mschym.rna[["SHOX2Mesenchyme"]]="sub_6"
+mschym.rna[["mesenchymeORnsConnectiveTissue"]]="sub_3"
+
+mschym.atac=list()
+mschym.atac[["WNT5AMesenchyme"]]="sub_1"
+mschym.atac[["anteriorMesenchyme"]]="sub_2"
+mschym.atac[["chondrocytes"]]="sub_5"
+mschym.atac[["lateChondrocytes"]]="sub_6"
+mschym.atac[["SHOX2Mesenchyme"]]="sub_4"
+mschym.atac[["mesenchymeORnsConnectiveTissue"]]=c("sub_3","sub_7")
+
+used.rna.mschym=c("Mesenchyme","skeletogenicCells")
+used.atac.mschym=c("Mesenchyme","skeletogenicCells","MesenchymeORskeletogenicCells")
+
+broadct.rna=list()
+broadct.rna[["Muscle"]]="4"
+broadct.rna[["Skin"]]="5"
+broadct.rna[["Leukocytes"]]="7"
+broadct.rna[["Mesenchyme"]]=c("1","2")
+
+broadct.atac=list()
+broadct.atac[["Muscle"]]=c("7","13")
+broadct.atac[["Skin"]]="15"
+broadct.atac[["Leukocytes"]]="14"
+broadct.atac[["Mesenchyme"]]=c("Mschym")
+
+used.rna.nonmschym=list()
+used.rna.nonmschym[["Muscle"]]="Muscle"
+used.rna.nonmschym[["Skin"]]="Skin"
+used.rna.nonmschym[["Leukocytes"]]="Leukocytes"
+used.rna.nonmschym[["Mesenchyme"]]=c("Mesenchyme","skeletogenicCells")
+
+used.atac.nonmschym=list()
+used.atac.nonmschym[["Muscle"]]="Muscle"
+used.atac.nonmschym[["Skin"]]="Skin"
+used.atac.nonmschym[["Leukocytes"]]="Leukocytes"
+used.atac.nonmschym[["Mesenchyme"]]=c("Mesenchyme","skeletogenicCells","MesenchymeORskeletogenicCells")
+
+#need to change when the population size is small (<100, k=20;<50,k=5)
+k.used.nonmschym=list()
+k.used.nonmschym[["Muscle"]]=50
+k.used.nonmschym[["Skin"]]=5
+k.used.nonmschym[["Leukocytes"]]=5
+k.used.nonmschym[["Mesenchyme"]]=50
+
+#need to change when the population size is small (<100, n=100;<50,n=50)
+n.used.nonmschym=list()
+n.used.nonmschym[["Muscle"]]=200
+n.used.nonmschym[["Skin"]]=50
+n.used.nonmschym[["Leukocytes"]]=50
+n.used.nonmschym[["Mesenchyme"]]=200
+
+all.atac=list()
+all.atac[["WNT5AMesenchyme"]]="sub_1"
+all.atac[["anteriorMesenchyme"]]="sub_2"
+all.atac[["chondrocytes"]]="sub_5"
+all.atac[["lateChondrocytes"]]="sub_6"
+all.atac[["SHOX2Mesenchyme"]]="sub_4"
+all.atac[["mesenchymeORnsConnectiveTissue"]]=c("sub_3","sub_7")
+all.atac[["Muscle"]]=c("7","13")
+all.atac[["Skin"]]="15"
+all.atac[["Leukocytes"]]="14"
+all.atac[["Mesenchyme"]]=c("Mschym") 
+
+i=1
+{
+  tmp.samples=names(samples)[i]
+  used.stages=sample.name[samples[[tmp.samples]]]
+  
+  ###################
+  # read in data
+  my.atac=readRDS(rds_path[i])
+  atac.meta=readRDS(meta_path[i])
+  my.atac=AddMetaData(my.atac,metadata = atac.meta[rownames(my.atac@meta.data),c("broad","annotation_broad","fine","annotation_fine")],col.name = c("broad","annotation_broad","fine","annotation_fine"))
+  my.rna = readRDS(paste0(rna_path,"/",scrna.name[i],"_seurat_290420.rds"))
+  rna.meta=readRDS(paste0("~/scRNA/clustering/meta_",tmp.samples,".rds"))
+  my.rna=AddMetaData(my.rna,metadata = rna.meta[rownames(my.rna@meta.data),c("broad","annotation_broad","fine","annotation_fine")],col.name = c("broad","annotation_broad","fine","annotation_fine"))
+  
+  subset.rna = readRDS(paste0("~/scRNA/clustering","/subset_",tmp.samples,".rds"))
+  subset.rna=AddMetaData(subset.rna,metadata = rna.meta[rownames(subset.rna@meta.data),])
+  
+  # read in chromvar motif activity
+  chromvar.mtx=read.table(gzfile(paste0("~/scATAC/motifenrich/",tmp.samples,"_chromvarDenovo.txt.gz")), sep = "\t")
+  colnames(chromvar.mtx)=gsub("\\.1","-1",colnames(chromvar.mtx))
+  rownames(chromvar.mtx)=substr(rownames(chromvar.mtx),1,20)
+  chromvar.mtx=as.matrix(chromvar.mtx)
+  my.atac[["chromvar"]]=CreateAssayObject(data=chromvar.mtx[,colnames(my.atac)])
+  
+  # read in motifs & STAMP results
+  mf.each=readRDS(paste0("~/scATAC/motifenrich/forStamp/homer_",tmp.samples,"_motifs_denovo_each.rds"))
+  mf.all=readRDS(paste0("~/scATAC/motifenrich/forStamp/homer_",tmp.samples,"_motifs_denovo_all.rds"))
+  
+  res.all=read.table(paste0("~/scATAC/motifenrich/forStamp/stamp_",tmp.samples,"_res_all.txt"),sep = " ",stringsAsFactors = F)
+  res.all$mfid=gsub("sub_","sub",res.all$searchMF)
+  res.all$cls=sapply(strsplit(res.all$mfid, "_"), "[[", 1)
+  res.all$cls=gsub("sub","sub_",res.all$cls)
+  
+  ###################
+  # mesenchyme populations
+  for(j in 1:length(mschym.rna)){
+    rna.cls=mschym.rna[[j]]
+    atac.cls=mschym.atac[[j]]
+    
+    #get motif matching result
+    res=list()
+    res$pccCustom=res.all[res.all$cls %in% paste0("cls",atac.cls),];dim(res$pccCustom)
+    #add scRNA information
+    if(length(atac.cls) > 1){
+      mf.used=mf.all
+      save.cls=paste0(atac.cls,collapse="-")
+    }else{
+      mf.used=mf.each
+      save.cls=atac.cls
+    }
+    print(paste0("run analysis for scRNA cls",rna.cls," & scATAC cls",save.cls))
+    
+    tfmtx.cls=stamp2exp(subset.rna=subset.rna, idents="fine",
+                        mf.each=mf.used, match.res=res,
+                        rna.cls=rna.cls,
+                        atac.cls=atac.cls)
+    
+    #add motif activity & expression correlation
+    tf.cor=calMotifsCor(data.atac=hm.integrated,
+                        data.rna=mtx.fl_rna,
+                        ident.rna="annotation_broad",
+                        ident.atac="annotation_broad",
+                        ctype.rna=used.rna.mschym,
+                        ctype.atac=used.atac.mschym,
+                        motifs=mf.used,
+                        stages=used.stages,
+                        tfinfo=tfmtx.cls, runchromvar=F,
+                        cca.rna="RNA", cca.atac="activity",
+                        mtx.rna="RNA", mtx.atac="chromvar",
+                        cor.method="spearman",
+                        k=50,n=200,hvgsN = 3000
+    )
+    saveRDS(tf.cor,paste0("~/scATAC/motifenrich/forStamp/",tmp.samples,"_stamp/",samples,"_cls",save.cls,"_tfCor.rds"))
+  }
+  
+  ###################
+  # non-mesenchyme populations
+  for(i in 1:length(broadct.rna)){
+    rna.cls=broadct.rna[[i]]
+    atac.cls=broadct.atac[[i]]
+    
+    #get motif matching result
+    res=list()
+    res$pccCustom=res.all[res.all$cls %in% paste0("cls",atac.cls),];dim(res$pccCustom)
+    #add scRNA information
+    if(length(atac.cls) > 1){
+      mf.used=mf.all
+      save.cls=paste0(atac.cls,collapse="-")
+    }else{
+      mf.used=mf.each
+      save.cls=atac.cls
+    }
+    print(paste0("run analysis for scRNA cls",rna.cls," & scATAC cls",save.cls))
+    
+    tfmtx.cls=stamp2exp(subset.rna=mtx.fl_rna, idents="broad",
+                        mf.each=mf.used, match.res=res,
+                        rna.cls=rna.cls,
+                        atac.cls=atac.cls)
+    #add motif activity & expression correlation
+    tf.cor=calMotifsCor(data.atac=hm.integrated,
+                        data.rna=mtx.fl_rna,
+                        ident.rna="annotation_broad",
+                        ident.atac="annotation_broad",
+                        ctype.rna=used.rna.nonmschym[[i]],
+                        ctype.atac=used.atac.nonmschym[[i]],
+                        motifs=mf.used,
+                        stages=used.stages,
+                        tfinfo=tfmtx.cls, runchromvar=F,
+                        cca.rna="RNA", cca.atac="activity",
+                        mtx.rna="RNA", mtx.atac="chromvar",
+                        cor.method="spearman",
+                        k=k.used.nonmschym[[i]],n=n.used.nonmschym[[i]],hvgsN = 3000
+    )
+    saveRDS(tf.cor,paste0("~/scATAC/motifenrich/forStamp/",samples,"_stamp/",samples,"_cls",save.cls,"_tfCor.rds"))
+  }
+  
+  ###################
+  # remove redundant motif based on motif similarity
+  #read in similarity score
+  sim=read.table(paste0("~/scATAC/motifenrich/forStamp/",tmp.samples,"_stamp/homer_",samples,"_denovoMotifs_similarity.txt"),
+                 sep="\t",row.names=1,header=T);dim(sim)
+  rownames(sim)=sapply(strsplit(rownames(sim), "\\."), "[[", 2)
+  rownames(sim)=substr(rownames(sim),1,20)
+  rownames(sim)=gsub("_","-",rownames(sim))
+  colnames(sim)=rownames(sim)
+  
+  #put all mf2tfnames together
+  mf2tfnames=NULL
+  for(i in 1:length(all.atac)){
+    atac.cls=all.atac[[i]]
+    if(length(atac.cls) > 1){
+      save.cls=paste0(atac.cls,collapse="-")
+    }else{
+      save.cls=atac.cls
+    }
+    print(paste0("for cls",save.cls))
+    
+    tf.cor=readRDS(paste0("~/scATAC/motifenrich/forStamp/",tmp.samples,"_stamp/",tmp.samples,"_cls",save.cls,"_tfCor.rds"))
+    
+    #get motif name for each de novo
+    m2t=mf2names(tfscore=tf.cor$tfinfo,rmDup=F,
+                 negLogEval.cutoff=2, avgExp.cutoff=0, pctExp.cutoff=3)
+    
+    #remove the one with same tf name
+    m2t.uni=rmDuplicates(mfname=m2t)
+    
+    mf2tfnames=rbind(mf2tfnames,m2t.uni)
+  }
+  dim(mf2tfnames)
+  
+  #be care for the motif with polyN
+  mf2tfnames[grepl("NNNNN",mf2tfnames$motifid),]
+  dim(mf2tfnames[duplicated(mf2tfnames$motifid),])
+  
+  rownames(sim)=gsub("sub-","sub",rownames(sim))
+  colnames(sim)=gsub("sub-","sub",colnames(sim))
+  mf2tfnames$motifid=gsub("sub-","sub",mf2tfnames$motifid)
+  
+  # keep only the ones with tf names
+  keep=mf2tfnames$motifid[mf2tfnames$motifid %in% rownames(sim)]
+  sim.keep=sim[keep,keep];dim(sim.keep)
+  
+  mf.unique=unique(rownames(sim.keep));length(mf.unique)
+  mf.redundant=NULL
+  thres=0.8
+  for(i in 1:length(mf.unique)){
+    sim.tmp=sim.keep[i,]
+    names(sim.tmp)=colnames(sim.keep)
+    reddt.tmp=names(sim.tmp)[sim.tmp>thres & sim.tmp<1]
+    pval.tmp=mf.each.pval[c(rownames(sim.keep)[i],reddt.tmp)]
+    #to avoid if there are more than one with low p-value, i.e. 1e-876=1e-999 in r
+    keep.tmp=names(pval.tmp[pval.tmp==max(pval.tmp)])[1]
+    mf.redundant=c(mf.redundant,names(pval.tmp)[names(pval.tmp) != keep.tmp])
+  }
+  mf.redundant=mf.redundant[!is.na(mf.redundant)]
+  length(unique(mf.redundant))
+  mf2tfnames$redundant="N"
+  mf2tfnames[!(mf2tfnames$motifid %in% rownames(sim.uni)),"redundant"]="Y"
+  
+  # use tf names instead 
+  rownames(mf2tfnames)=mf2tfnames$motifid
+  mf2tfnames=mf2tfnames[keep,]
+  mf2tfnames$mfnew=paste0(mf2tfnames$tfname,"-",
+                          sapply(strsplit(mf2tfnames$motifid, "-"), "[[", 1),
+                          "-",sapply(strsplit(mf2tfnames$motifid, "-"), "[[", 2))
+  mf2tfnames$cls=paste0(sapply(strsplit(mf2tfnames$motifid, "-"), "[[", 1))
+  
+  # add TF family by Gallus_gallus_TF_AnimalTFDB3_edited.txt
+  mf2tfnames$tfFamily="unknown"
+  for(i in 1:nrow(mf2tfnames)){
+    tf=mf2tfnames$tfname[i]
+    tmp=tfinfo[tfinfo$Symbol==tf,"Family"]
+    if(length(tmp)==0){
+      next
+    }else if(tmp==""){
+      next
+    }else{
+      mf2tfnames$tfFamily[i]=tmp
+    }
+  }
+  dim(mf2tfnames[mf2tfnames$tfFamily!="unknown",])
+  write.table(mf2tfnames,paste0("~/scATAC/motifenrich/forStamp/",tmp.samples,"_denovoMotifs_mf2tfnames.txt"),sep = "\t",quote = F)
+  
+  
+}
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+
+```
+
+## log
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+sessionInfo()
+```
+
+

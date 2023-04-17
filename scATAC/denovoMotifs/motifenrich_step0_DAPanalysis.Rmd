@@ -1,0 +1,99 @@
+---
+title: "motifenrich_DAPanalysis"
+output: 
+  html_document:
+    df_print: paged
+  html_notebook:
+editor_options:
+  chunk_output_type: inline
+--- 
+ 
+```{r setup, message=FALSE, warning=FALSE, echo=FALSE}
+library(Signac); library(Seurat)
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+samples=list()
+samples[["limb"]]=c(1,2);samples[["nasal"]]=c(3,4);samples[["somite"]]=c(5,6)
+sample.name <- c("L21","L24","N15","N18","S12","S15")
+data.name <- c("10x_atac_12012021","10x_atac_10042020","10x_atac_12012021","10x_atac_10042020","10x_atac_12012021","10x_atac_12012021")
+anno_path <- "/scicore/home/tschoppp/GROUP/references/genomes/ENS_g6/chicken_Gg6_atac_pre/"
+meta_path <- paste0("~/scATAC/integration/",paste0(names(samples),"_atac_integrated010721_meta.rds"))
+rds_path <- paste0("~/scATAC/integration/",paste0(names(samples),"_atac_integrated010721.rds"))
+
+cls.mesenchyme=list(); cls.nonmesenchyme=list()
+cls.mesenchyme[["limb"]]=c("1","2","3","4","5","6","8","9","12");cls.mesenchyme[["nasal"]]=c("2","3","4");cls.mesenchyme[["somite"]]=c("1")
+cls.nonmesenchyme[["limb"]]=c("13","14","15","7");cls.nonmesenchyme[["nasal"]]=c("1","5","6","7","8","11","12","13","14","15");cls.nonmesenchyme[["somite"]]=c("2","3","4","5","6","7","8","9","10","11","12","13","14")
+
+cls.chondrocytes=list(); cls.restmesenchyme=list()
+cls.chondrocytes[["limb"]]=c("sub_5");cls.chondrocytes[["nasal"]]=c("sub_6");cls.chondrocytes[["somite"]]=c("sub_4")
+cls.restmesenchyme[["limb"]]=c("sub_1","sub_2","sub_3","sub_4","sub_7");cls.restmesenchyme[["nasal"]]=c("sub_1","sub_2","sub_3","sub_4","sub_5");cls.restmesenchyme[["somite"]]=c("sub_1","sub_2","sub_3","sub_5","sub_6")
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+for(i in 1:length(samples)){
+  ## read in data
+  tmp.samples=names(samples)[i]
+  hm.integrated=readRDS(rds_path[i])
+  my.meta=readRDS(meta_path[i])
+  hm.integrated=AddMetaData(hm.integrated,metadata = my.meta[rownames(hm.integrated@meta.data),])
+  DefaultAssay(hm.integrated)="macs2peaks"
+  
+  ## identify DAPs for each broad cluster
+  Idents(hm.integrated)=as.character(hm.integrated$broad)
+  dap = FindAllMarkers(object = hm.integrated, 
+                       min.pct = 0.05,logfc.threshold = 0.25,
+                       test.use = 'LR', latent.vars = c("nCount_bins","dataset"), verbose = F)
+  dap = dap[!is.na(dap$p_val) & dap$p_val_adj < 0.05,]
+  dap=dap[order(-dap$avg_log2FC),]
+  write.table(dap,paste0("~/scATAC/diffAnalysis/",tmp.samples,"_daps_broad.txt"),
+              sep = "\t",row.names = T, col.names = T,quote = F)
+  
+  ## identify DAPs: mesenchyme vs non-mesenchyme
+  Idents(hm.integrated)=as.character(hm.integrated$broad)
+  dap.mschym = FindMarkers(object = hm.integrated, ident.1=cls.mesenchyme[[tmp.samples]],
+                    ident.2 = cls.nonmesenchyme[[tmp.samples]],
+                    min.pct = 0.05,logfc.threshold = 0.25,
+                    test.use = 'LR', latent.vars = c("nCount_bins","dataset"), verbose = F) 
+  dap.mschym = dap.mschym[!is.na(dap.mschym$p_val) & dap.mschym$p_val_adj < 0.05,]
+  dap.mschym=dap.mschym[order(-dap.mschym$avg_log2FC),]
+  write.table(dap.mschym,paste0("~/scATAC/diffAnalysis/",tmp.samples,"_daps_mesenchymeVSnonMesenchyme.txt"),
+              sep = "\t",row.names = T, col.names = T,quote = F)
+  
+  ## identify DAPs for each fine cluster
+  Idents(hm.integrated)=as.character(hm.integrated$fine)
+  hm.integrated=subset(hm.integrated,cells = rownames(hm.integrated@meta.data[grepl("sub_",hm.integrated@meta.data$fine),]))
+  dap = FindAllMarkers(object = hm.integrated, 
+                       min.pct = 0.05,logfc.threshold = 0.25,
+                       test.use = 'LR', latent.vars = c("nCount_bins","dataset"), verbose = F) #lower min.pct, as scATAC data are sparse 
+  dap = dap[!is.na(dap$p_val) & dap$p_val_adj < 0.05,]
+  dap=dap[order(-dap$avg_log2FC),]
+  write.table(dap,paste0("~/scATAC/diffAnalysis/",tmp.samples,"_daps_fine.txt"),
+              sep = "\t",row.names = T, col.names = T,quote = F)
+  
+  ## identify DAPs: chondrocytes vs rest mesenchyme
+  Idents(hm.integrated)=as.character(hm.integrated$fine)
+  dap.chondrocytes = FindMarkers(object = hm.integrated, ident.1=cls.chondrocytes[[tmp.samples]],
+                           ident.2 = cls.restmesenchyme[[tmp.samples]],
+                           min.pct = 0.05,logfc.threshold = 0.25,
+                           test.use = 'LR', latent.vars = c("nCount_bins","dataset"), verbose = F) 
+  dap.chondrocytes = dap.chondrocytes[!is.na(dap.chondrocytes$p_val) & dap.chondrocytes$p_val_adj < 0.05,]
+  dap.chondrocytes=dap.chondrocytes[order(-dap.chondrocytes$avg_log2FC),]
+  write.table(dap.chondrocytes,paste0("~/scATAC/diffAnalysis/",tmp.samples,"_daps_chondrocytes.txt"),
+              sep = "\t",row.names = T, col.names = T,quote = F)
+  
+}
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+
+```
+
+## log
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+sessionInfo()
+```

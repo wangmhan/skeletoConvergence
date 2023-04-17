@@ -1,0 +1,662 @@
+---
+title: "motifenrich_reassignByPseudotime"
+output: 
+  html_document:
+    df_print: paged
+  html_notebook:
+editor_options:
+  chunk_output_type: inline
+--- 
+
+```{r setup, message=FALSE, warning=FALSE, echo=FALSE}
+library(Signac);library(Seurat)
+library(ggplot2);library(limma)
+library(pheatmap);library(viridis);library(RColorBrewer)
+library(slingshot)
+source("~/Rscript/testGit/scATAC/motifenrich_function.R")
+
+set.seed(1234)
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+samples=list()
+samples[["limb"]]=c(1,2);samples[["nasal"]]=c(3,4);samples[["somite"]]=c(5,6)
+sample.name <- c("L21","L24","N15","N18","S12","S15")
+data.name <- c("10x_atac_12012021","10x_atac_10042020","10x_atac_12012021","10x_atac_10042020","10x_atac_12012021","10x_atac_12012021")
+anno_path <- "/scicore/home/tschoppp/GROUP/references/genomes/ENS_g6/chicken_Gg6_atac_pre/"
+meta_path <- paste0("~/scATAC/integration/",paste0(names(samples),"_atac_integrated010721_meta.rds"))
+rds_path <- paste0("~/scATAC/integration/",paste0(names(samples),"_atac_integrated010721.rds"))
+
+rna_path <- "/scicore/home/tschoppp/GROUP/lab/Chris.shared/for.Menghan"
+scrna.name = c("forelimb","frontonasal","somites")
+
+tfinfo=read.table("/scicore/home/tschoppp/wang0007/references/Gallus_gallus_TF_AnimalTFDB3_edited.txt",
+                  sep="\t",header = TRUE,stringsAsFactors = FALSE)
+tfinfo$Symbol=toupper(tfinfo$Symbol)
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+# derived from step9b_correctMotifNames.Rmd
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+gene.info=read.table("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/ensembl97_geneinfo.txt",
+                     sep="\t",header = TRUE,row.names = 1,stringsAsFactors = FALSE)
+gene.info[gene.info$genename=="","genename"]=rownames(gene.info[gene.info$genename=="",])
+gene.info$genename=toupper(gene.info$genename)
+
+#as AnimalTFDB3 include most of the TFs, so use this list (result from motif_changeFormat.Rmd: 549/597=0.92)
+tfs=read.table("~/references/Gallus_gallus_TF_AnimalTFDB3_edited.txt",sep="\t",header = TRUE,stringsAsFactors = FALSE)
+#length(tfs$Ensembl[tfs$Ensembl %in% rownames(gene.info)]) --> 1079/1268,tfs$origin:animalTFDB3.chicken.notIn200819gtf
+mid2name=read.table("~/references/motifs/motif_id2name.txt",sep = "\t",header = T,stringsAsFactors = F)
+rownames(mid2name)=mid2name$motif_id
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+#keep only one motif for each TF
+#--> if exist, use the one with lowest Homer P-value from this origin chondrocytes;
+#--> if not, use the one from pseudotime trajectory;
+#--> if not, use the one from rest mesenchyme of same origin;
+#--> if not, use the one from mesenchyme of other origins;
+#--> if not, use the one from same origin, other cell type;
+
+# because if the motif is in this origin both mesenchymal and non-mesenchymal populations, but the homer Pvalue in non-mesenchymal population is lower, than will be defined as non-mesenchymal motif. Don't want to miss those also play a role in mesenchymal population.
+
+# function
+get2tf=function(tfnames=mf2tfnames.all$overall,
+                used.origin="L",used.cls="sub|Mschym",
+                used.ptime=ptime.cls[["limb"]]){
+  tf.uni=unique(tfnames$tfname)
+  used.tf=data.frame(tfname=tf.uni, mfnew="",id="")
+  
+  for(i in 1:nrow(used.tf)){
+    tmp.tf=used.tf$tfname[i]
+    tmp.candidates=tfnames[tfnames$tfname==tmp.tf,]
+    tmp.chondrocytes.origin=tmp.candidates[grepl("-chondrocytes",tmp.candidates$clsname) & tmp.candidates$origin==used.origin,]
+    tmp.ptime.origin=tmp.candidates[grepl(used.ptime,tmp.candidates$clsname) & tmp.candidates$origin==used.origin,]
+    tmp.testcls.origin=tmp.candidates[grepl(used.cls,tmp.candidates$cls) & tmp.candidates$origin==used.origin,]
+    tmp.testcls=tmp.candidates[grepl(used.cls,tmp.candidates$cls),]
+    tmp.origin=tmp.candidates[tmp.candidates$origin==used.origin,]
+    tmp.any=tmp.candidates
+    #use the one with lowest Homer P-value from this origin chondrocytes
+    if(nrow(tmp.chondrocytes.origin)>=1){
+      used.tf$mfnew[i]=tmp.chondrocytes.origin[order(tmp.chondrocytes.origin$homerPval),][1,"mfnew.unique"]
+      used.tf$id[i]=rownames(tmp.chondrocytes.origin[order(tmp.chondrocytes.origin$homerPval),])[1]
+    }else if(nrow(tmp.ptime.origin)>=1){ #if not, use the one from pseudotime trajectory
+      used.tf$mfnew[i]=tmp.ptime.origin[order(tmp.ptime.origin$homerPval),][1,"mfnew.unique"]
+      used.tf$id[i]=rownames(tmp.ptime.origin[order(tmp.ptime.origin$homerPval),])[1]
+    }else if(nrow(tmp.testcls.origin)>=1){ #if not, use the one from rest mesenchyme of same origin
+      used.tf$mfnew[i]=tmp.testcls.origin[order(tmp.testcls.origin$homerPval),][1,"mfnew.unique"]
+      used.tf$id[i]=rownames(tmp.testcls.origin[order(tmp.testcls.origin$homerPval),])[1]
+    }else if(nrow(tmp.testcls)>=1){ #if not, use the one from mesenchyme of other origins
+      used.tf$mfnew[i]=tmp.testcls[order(tmp.testcls$homerPval),][1,"mfnew.unique"]
+      used.tf$id[i]=rownames(tmp.testcls[order(tmp.testcls$homerPval),])[1]
+    }else if(nrow(tmp.origin)>=1){ #if not, use the one from same origin, other cell type
+      used.tf$mfnew[i]=tmp.origin[order(tmp.origin$homerPval),][1,"mfnew.unique"]
+      used.tf$id[i]=rownames(tmp.origin[order(tmp.origin$homerPval),])[1]
+    }
+  }
+  used.tf=used.tf[used.tf$id!="",]
+  used.tf$res=gsub("\\||-",".",used.tf$mfnew)
+  return(used.tf)
+  
+}
+
+## !!changed the way to get ptbins for scATAC.
+## !!changed average of motif activity, as default will expm1().
+ptheatmap=function(scatac=subset.atac,
+                   ptatac=pt.meta,ptatac.selected="pseudotime.chondrocytes",
+                   nbins=80,
+                   gene.selected=genes,genes.order=p3$tree_row$labels[p3$tree_row$order][c(20:41,1:19)],
+                   mf.origin="L",origin="limb",rnameTF=FALSE,
+                   log=TRUE,scale=TRUE,smooth=TRUE,
+                   col1=colorRampPalette(colors = c("blue", "white","red"))(8/0.1),break1=seq(-4, 4, by=0.1),
+                   col2=colorRampPalette(colors = c("blue", "white","red"))(8/0.1),break2=seq(-4, 4, by=0.1),
+                   col3=colorRampPalette(colors = c("blue", "white","red"))(10/0.1),break3=seq(-5, 5, by=0.1)){
+  #############
+  ## scatac
+  
+  #add motif activity
+  chromvar.mtx=read.table(gzfile(paste0("~/scATAC/motifenrich/",origin,"_chromvarDenovo-LNSmotifs.txt.gz")), sep = "\t")
+  colnames(chromvar.mtx)=gsub("\\.1","-1",colnames(chromvar.mtx))
+  rownames(chromvar.mtx)=substr(rownames(chromvar.mtx),1,20)
+  chromvar.mtx=as.matrix(chromvar.mtx)
+  used.tf=get2tf(tfnames=mf2tfnames.all$overall,
+                 used.origin=mf.origin,used.cls="sub|Mschym",
+                 used.ptime=ptime.cls[[origin]])
+  rownames(used.tf)=used.tf$id
+  rownames(chromvar.mtx)=gsub("sub-","sub",rownames(chromvar.mtx))
+  #chromvar.mtx=chromvar.mtx[used.tf$id,];dim(chromvar.mtx)
+  ################
+  ## deal with tfname with "|"
+  used.tfnew=used.tf
+  rownames(used.tfnew)=used.tfnew$tfname
+  used.tfextra=NULL
+  for(i in 1:nrow(used.tfnew)){
+    if(grepl("\\|",used.tfnew$tfname[i])){
+      tmp.mf=gsub("\\|",",",used.tfnew$tfname[i])
+      tmp.mf=unlist(strsplit(tmp.mf,","))
+      tmp.extra=as.data.frame(lapply(used.tf[i,], rep, length(tmp.mf)))
+      tmp.extra$tfname=tmp.mf
+      used.tfextra=rbind(used.tfextra,tmp.extra)
+    }
+  }
+  #used.tfextra[duplicated(used.tfextra$tfname),]
+  used.tfnew=rbind(used.tfnew,used.tfextra)
+  used.tfnew=used.tfnew[!grepl("\\|",used.tfnew$tfname),]
+  used.tfnew=used.tfnew[!duplicated(used.tfnew$tfname),]
+  #used.tfnew$tfname=gsub("\\|",",",used.tfnew$tfname)
+  dim(used.tfnew);dim(used.tf)
+  #add them into chromvar matrix
+  chromvar.mtx=chromvar.mtx[used.tfnew$id,];dim(chromvar.mtx)
+  rownames(chromvar.mtx)=used.tfnew$tfname
+
+  subset.atac[["chromvar.name"]]=CreateAssayObject(data=chromvar.mtx[,colnames(subset.atac)])
+  DefaultAssay(subset.atac) <- 'chromvar.name'
+  subset.atac@assays$chromvar.name@scale.data=chromvar.mtx[,colnames(subset.atac)]
+  #subset.atac=ScaleData(subset.atac)
+  
+  #get pseudotime & ptbins
+  subset.atac <- AddMetaData(
+    object = subset.atac,
+    metadata = ptatac[rownames(subset.atac@meta.data),ptatac.selected],
+    col.name = "pseudotime"
+  )
+  my.data=subset(subset.atac,cells=rownames(ptatac[!is.na(ptatac[,ptatac.selected]),]))
+  my.meta=my.data@meta.data
+  
+  
+  #put cells into n pseudotime bins
+  if(origin=="limb"){
+    i=1
+  }else if(origin=="somite"){
+    i=2
+  }else if(origin=="nasal"){
+    i=3
+  }
+  get_slshot=readRDS(my.pfiles[i])
+  
+  #need to use same interval as scRNA, so that can calculate Pearson correlation
+  n=nbins
+  ptrna=slingPseudotime(get_slshot[["xtsne"]])[,cid[i]]
+  ptrna=ptrna[!is.na(ptrna)]
+  max=max(ptrna) #max(my.meta$pseudotime)
+  intervals=seq(0,max,by=max/n)
+  my.meta$ptbins=1000
+  for(j in 1:(length(intervals)-1)){
+    ptmin=as.numeric(intervals[j])
+    ptmax=as.numeric(intervals[(j+1)])
+    my.meta[my.meta$pseudotime >= ptmin & my.meta$pseudotime < ptmax,"ptbins"]=j
+  }
+  my.meta[my.meta$ptbins==1000,"ptbins"]=n
+  p1=ggplot(data.frame(my.meta), aes(x=ptbins)) + 
+    geom_histogram(colour="black", fill="white",bins=n-1) + 
+    theme_classic()+ggtitle("scATAC ptBins")+ylab("cell number")
+  print(p1);print(table(my.meta$ptbins))
+  
+  #calculate average motif activity
+  my.data=AddMetaData(my.data,my.meta[rownames(my.data@meta.data),c("pseudotime","ptbins")])
+  my.data$ptbins=factor(my.data$ptbins,levels = as.character(1:n))
+  Idents(my.data)=my.data$ptbins
+  avg.atac=AverageExpression(my.data,assays = "chromvar.name",slot = "scale.data")[["chromvar.name"]] #!! need to use this, otherwise will be expm1()  #no log, no scaled
+  colnames(avg.atac)=paste0(origin,"_bin",colnames(avg.atac))
+  avg.atac=as.data.frame(avg.atac)
+  avg.atac[(nrow(avg.atac)+1),]=table(my.data$ptbins)
+  rownames(avg.atac)[nrow(avg.atac)]="cellnumberFORbins"
+  print("finish scATAC part (average gene activity)!")
+  
+  #calculate average gene activity
+  avg.atac.geneact=AverageExpression(my.data,assays = "activity.name")[["activity.name"]] #no log, no scaled
+  colnames(avg.atac.geneact)=paste0(origin,"_bin",colnames(avg.atac.geneact))
+  avg.atac.geneact=as.data.frame(avg.atac.geneact)
+  print("finish scATAC part (average motif activity)!")
+  
+  
+  #############
+  ## scrna
+  
+  #get scRNA data
+  subset.rna=readRDS(my.files[i])
+  subset.rna@active.assay="RNA"
+  meta.rna=readRDS(my.mfiles[i]); dim(meta.rna)
+  
+  #add pseudotime & subset
+  meta.rna$pseudotime=slingPseudotime(get_slshot[["xtsne"]])[,cid[i]][rownames(meta.rna)]
+  meta.rna=meta.rna[!is.na(meta.rna$pseudotime),]; dim(meta.rna)
+  subset.rna=subset(subset.rna,cells = rownames(meta.rna))
+  meta.rna=meta.rna[rownames(subset.rna@meta.data),]
+  
+  #put cells into n pseudotime bins
+  #n=nbins
+  #max=max(meta.rna$pseudotime)
+  #intervals=seq(0,max,by=max/n)
+  meta.rna$ptbins=1000
+  for(j in 1:(length(intervals)-1)){
+    ptmin=as.numeric(intervals[j])
+    ptmax=as.numeric(intervals[(j+1)])
+    meta.rna[meta.rna$pseudotime >= ptmin & meta.rna$pseudotime < ptmax,"ptbins"]=j
+  }
+  meta.rna[meta.rna$ptbins==1000,"ptbins"]=n
+  p2=ggplot(data.frame(meta.rna), aes(x=ptbins)) + 
+    geom_histogram(colour="black", fill="white",bins=n-1) + 
+    theme_classic()+ggtitle("scRNA ptBins")+ylab("cell number")
+  print(p2);print(table(meta.rna$ptbins))
+  
+  #calculate average expression
+  subset.rna=AddMetaData(subset.rna,meta.rna[rownames(subset.rna@meta.data),c("pseudotime","ptbins")])
+  subset.rna$ptbins=factor(subset.rna$ptbins,levels = as.character(1:n))
+  Idents(subset.rna)=subset.rna$ptbins; assay.used="RNA"
+  my.average=AverageExpression(subset.rna,assays = assay.used)[[assay.used]] #no log, no scaled
+  colnames(my.average)=paste0(samples,"_bin",colnames(my.average))
+  my.average=as.data.frame(my.average)
+  #change to gene name
+  my.average$genename=gene.info[rownames(my.average),"genename"]
+  tmp=my.average[!duplicated(my.average$genename) & !is.na(my.average$genename),]
+  rownames(tmp)=tmp$genename;tmp=tmp[,1:(ncol(my.average)-1)]
+  my.average=tmp 
+  my.average[(nrow(my.average)+1),]=table(subset.rna$ptbins)
+  rownames(my.average)[nrow(my.average)]="cellnumberFORbins"
+  
+  print("finish scRNA part (average gene expression)!")
+  
+  #############
+  ## heatmap
+  
+  dynamics=avg.atac[gene.selected[gene.selected %in% rownames(avg.atac)],]
+  dynamics.geneact=avg.atac.geneact[gene.selected[gene.selected %in% rownames(avg.atac.geneact)],]
+  dynamics.rna=my.average[gene.selected[gene.selected %in% rownames(my.average)],]
+  
+  if(log){
+    # translate, then transform: log10(Y + 1 - min(Y))
+    dynamics=log2(dynamics+1-min(dynamics))
+    dynamics.geneact=log2(dynamics.geneact+1)
+    dynamics.rna=log2(dynamics.rna+1)
+  }
+  
+  # cubic smoothing spline
+  if(smooth){
+    dynamics <- t(apply(dynamics,1,function(x){smooth.spline(x,df=3)$y}))
+    dynamics.geneact <- t(apply(dynamics.geneact,1,function(x){smooth.spline(x,df=3)$y}))
+    dynamics.rna <- t(apply(dynamics.rna,1,function(x){smooth.spline(x,df=3)$y}))
+  }
+  
+  # scaled
+  if(scale){
+    dynamics=t(scale(t(dynamics)))
+    dynamics.geneact=t(scale(t(dynamics.geneact)))
+    dynamics.rna=t(scale(t(dynamics.rna)))
+  }
+  
+  print(paste0("the number of selected genes: ",length(gene.selected)))
+  genes.order=genes.order[genes.order %in% rownames(dynamics)];length(genes.order)
+  genes.order=genes.order[genes.order %in% rownames(dynamics.rna)];length(genes.order)
+  genes.order=genes.order[genes.order %in% rownames(dynamics.geneact)];length(genes.order)
+  print(paste0("the number of gene in heatmap: ",length(genes.order)))
+  
+  #rename scatac
+  dynamics=dynamics[genes.order,]
+  if(rnameTF){
+    rownames(used.tfnew)=used.tfnew$tfname
+    rownames(dynamics)=used.tfnew[rownames(dynamics),"mfnew"]
+  }
+  
+  pt1=pheatmap(
+    mat               = dynamics,
+    border_color      = NA,
+    show_colnames     = TRUE, show_rownames     = TRUE,
+    cluster_rows=FALSE, cluster_cols = FALSE, 
+    drop_levels       = TRUE,
+    fontsize          = 8, silent = TRUE,
+    #annotation_row    = anno$row, annotation_colors = anno$color,
+    main              = paste0(samples,": motif activity dynamics"),
+    color = col1,
+    breaks = break1
+  )
+  plot.new(); print(pt1)
+  pt1.geneact=pheatmap(
+    mat               = dynamics.geneact[genes.order,],
+    border_color      = NA,
+    show_colnames     = TRUE, show_rownames     = TRUE,
+    cluster_rows=FALSE, cluster_cols = FALSE, 
+    drop_levels       = TRUE,
+    fontsize          = 8, silent = TRUE,
+    #annotation_row    = anno$row, annotation_colors = anno$color,
+    main              = paste0(samples,": gene activity dynamics"),
+    color = col2,
+    breaks = break2
+  )
+  plot.new(); print(pt1.geneact)
+  
+  pt1.rna=pheatmap(
+    mat               = dynamics.rna[genes.order,],
+    border_color      = NA,
+    show_colnames     = TRUE, show_rownames     = TRUE,
+    cluster_rows=FALSE, cluster_cols = FALSE, 
+    drop_levels       = TRUE,
+    fontsize          = 8, silent = TRUE,
+    #annotation_row    = anno$row, annotation_colors = anno$color,
+    main              = paste0(samples,": gene expression dynamics"),
+    color = col3,
+    breaks = break3
+  )
+  plot.new(); print(pt1.rna)
+  
+  avg=list()
+  avg[["scatac"]]=avg.atac
+  avg[["scrna"]]=my.average
+  avg[["scatac.geneact"]]=avg.atac.geneact
+  avg[["motif.info"]]=used.tfnew
+  return(avg)
+
+}
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+mf2tfnames.all=readRDS(paste0("~/scATAC/motifenrich/all_denovoMotifs_mf2tfnames.rds"))
+tfnames=mf2tfnames.all$overall
+
+ptime.cls=list()
+ptime.cls[["limb"]]=paste(c("WNT5AMesenchyme","chondrocytes","lateChondrocytes","amb_mesenchymeORnsConnectiveTissue"),collapse = "|")
+ptime.cls[["nasal"]]=paste(c("neuralcrestDerivedMesenchyme","eyeConnectiveTissue","chondrocytes"),collapse = "|")
+ptime.cls[["somite"]]=paste(c("somite2","somite1","chondrocytes"),collapse = "|")
+
+my.origins=c("limb","somite","nasal")
+my.files=paste0("~/scRNA/clustering/subset_",my.origins,".rds")
+my.pfiles=paste0("~/scRNA/pseudotime/ptime_",my.origins,"_slingshot.rds")
+my.mfiles=paste0("~/scRNA/clustering/meta_",my.origins,".rds")
+cid=c("curve1","curve2","curve4")
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+## compare not only TF with same name, but other paralogs
+# data from ensembl v97 biomart: http://jul2019.archive.ensembl.org/biomart/martview/e3186f08cf1276a63be847f49e9d5c96
+# https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4964396/
+paralogs=read.table("~/references/ensembl_chickenParalog_v97.txt",sep="\t",header = T)
+paralogs$Gene.name=toupper(paralogs$Gene.name)
+paralogs$Chicken.paralogue.associated.gene.name=toupper(paralogs$Chicken.paralogue.associated.gene.name)
+paralogs[paralogs$Chicken.paralogue.associated.gene.name=="","Chicken.paralogue.associated.gene.name"]=paralogs[paralogs$Chicken.paralogue.associated.gene.name=="","Chicken.paralogue.gene.stable.ID"]
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+for(i in 1:length(samples)){
+  tmp.samples=names(samples)[i]
+  subset.atac=readRDS(paste0("/scicore/home/tschoppp/wang0007/scATAC/integration/",tmp.samples,"_atac_intgtFine010721.rds"))
+  my.meta=readRDS(paste0("/scicore/home/tschoppp/wang0007/scATAC/integration/",tmp.samples,"_atac_integrated010721_meta.rds"))
+  subset.atac=AddMetaData(subset.atac,metadata = my.meta[rownames(subset.atac@meta.data),c("broad","annotation_broad","fine","annotation_fine")],col.name = c("broad","annotation_broad","fine","annotation_fine"))
+  pt.meta=readRDS(paste0("~/scATAC/pseudotime/ptime_scatac_",tmp.samples,"_summary.rds"))
+  
+  
+  ######################
+  # get the value of ptbins
+  markers=c("MSX2","TFAP2B","LH-2A","HOXD12","HAND2","MECOM","SOX9","SOX5","TBX2","NKX3-2")
+  ph=ptheatmap(scatac=subset.atac,
+               ptatac=pt.meta,ptatac.selected="pseudotime.transferData.relaxed",
+               nbins=80,
+               gene.selected=markers,genes.order=markers,
+               mf.origin="L",origin="limb",rnameTF=TRUE,scale = TRUE,smooth = FALSE,
+               col1 = colorRampPalette(rev(brewer.pal(n = 7, name ="RdYlBu")))(80),break1=seq(-4, 4, by=0.1),
+               col2 = colorRampPalette(rev(brewer.pal(n = 7, name ="RdYlBu")))(80),break2=seq(-4, 4, by=0.1),
+               col3 = colorRampPalette(rev(brewer.pal(n = 7, name ="RdYlBu")))(80),break3=seq(-4, 4, by=0.1))
+  
+  # keep only the ptbin in both scATAC and scRNA
+  ptbins=c(colnames(ph$scatac),colnames(ph$scrna))
+  ptbins=ptbins[duplicated(ptbins)];length(ptbins)
+  avg.atac=ph$scatac[,ptbins]
+  avg.rna=ph$scrna[,ptbins]
+  avg.geneact=ph$scatac.geneact
+  
+  ph$motif.info$trend=""
+  for(i in 1:nrow(ph$motif.info)){
+    tmp.mfnew=ph$motif.info$mfnew[i]
+    ph$motif.info$trend[i]=mf2tfnames.all$overall[mf2tfnames.all$overall$mfnew.unique==tmp.mfnew,"trend"]
+  }
+  
+  log=TRUE
+  if(log){
+    avg.atac=log2(avg.atac+1-min(avg.atac))
+    avg.rna=log2(avg.rna+1)
+    avg.geneact=log2(avg.geneact+1)
+  }
+  
+  scale=TRUE
+  if(scale){
+    avg.atac=t(scale(t(avg.atac)))
+    avg.rna=t(scale(t(avg.rna)))
+    avg.geneact=t(scale(t(avg.geneact)))
+  }
+  
+  ######################
+  # calculate correlation
+  
+  ## compare only TF with same name
+  test.genes=rownames(avg.atac)[rownames(avg.atac) %in% rownames(avg.rna)];length(test.genes)
+  test.genes=c(test.genes,rownames(avg.atac)[grepl(",",rownames(avg.atac))])
+  
+  pcc=data.frame(tfs=test.genes,
+                 pval=rep(1,length(test.genes)),
+                 padj=rep(1,length(test.genes)),
+                 cor=rep(0,length(test.genes)))
+  
+  for(i in 1:length(test.genes)){
+    t1=avg.atac[test.genes[i],]
+    if(grepl(",",test.genes[i])){
+      tmp.split=unlist(strsplit(",",test.genes[i]))
+      tmp.split=tmp.split[tmp.split %in% rownames(avg.rna)]
+      t2=colMeans(avg.rna[tmp.split,])
+    }else{
+      t2=avg.rna[test.genes[i],]
+    }
+    if(length(t1[!is.na(t1)])==0|length(t2[!is.na(t2)])==0){
+      next
+    }
+    comput=cor.test(t1,t2,method="pearson")
+    pcc[i,"pval"]=comput$p.value
+    pcc[i,"cor"]=comput$estimate
+  }
+  pcc$padj=p.adjust(pcc$pval,method="fdr",n=nrow(pcc))
+  
+  #add from animalDB dataset as well
+  tfs$genename=tfs$Symbol
+  tfs[tfs$Symbol=="-","genename"]=tfs[tfs$Symbol=="-","Ensembl"]
+  tfs.all=c(ph$motif.info$tfname,tfs$genename)
+  
+  tfs.all=tfs.all[!duplicated(tfs.all)];length(tfs.all)
+  tfs.all.id=rownames(gene.info[(gene.info$genename %in% ph$motif.info$tfname),])
+  tfs.all.id=c(tfs.all.id,tfs$Ensembl);tfs.all.id=tfs.all.id[!duplicated(tfs.all.id)];length(tfs.all.id)
+  
+  test.genes=rownames(avg.atac)[rownames(avg.atac) %in% rownames(avg.rna)];length(test.genes)
+  test.genes=c(test.genes,rownames(avg.atac)[grepl(",",rownames(avg.atac))])
+  
+  pcc.paralogs=data.frame(motif.TFs=test.genes,
+                          gene.bestmatch=test.genes,
+                          pval=rep(1,length(test.genes)),
+                          padj=rep(1,length(test.genes)),
+                          cor=rep(0,length(test.genes)))
+  
+  for(i in 1:length(test.genes)){
+    t1=avg.atac[test.genes[i],]
+    #if there are paralogs
+    paralogs.tmp=paralogs[paralogs$Gene.name==test.genes[i],];print(dim(paralogs.tmp))
+    # the paralogs need to be TFs
+    paralogs.tmp=paralogs.tmp[paralogs.tmp$Chicken.paralogue.gene.stable.ID %in% tfs.all.id,];print(dim(paralogs.tmp))
+    #sometimes there are wierd ones, i.e. "NPC2"
+    # which don't have paralogs, but still in the table
+    if(nrow(paralogs.tmp)!=0 & paralogs.tmp$Chicken.paralogue.gene.stable.ID[1]!=""){
+      res.tmp=data.frame(motif.TFs=test.genes[i],
+                         gene.match=c(test.genes[i],paralogs.tmp$Chicken.paralogue.associated.gene.name),
+                         pval=rep(1,(nrow(paralogs.tmp)+1)),
+                         cor=rep(0,(nrow(paralogs.tmp)+1)))
+      for(j in 1:nrow(paralogs.tmp)){
+        t2.tmp=avg.rna[res.tmp$gene.match[j],]
+        if(length(t1[!is.na(t1)])==0|length(t2.tmp[!is.na(t2.tmp)])==0){
+          next
+        }
+        comput.tmp=cor.test(t1,t2.tmp,method="pearson")
+        res.tmp[j,"pval"]=comput.tmp$p.value
+        res.tmp[j,"cor"]=comput.tmp$estimate
+      }
+      
+      tmp.trend=ph$motif.info[test.genes[i],"trend"]
+      if(tmp.trend=="repressor"){
+        res.one=res.tmp[order(res.tmp$cor),][1,]
+      }else{
+        res.one=res.tmp[order(-res.tmp$cor),][1,] #
+      }
+      
+      pcc.paralogs$gene.bestmatch[i]=res.one$gene.match
+      pcc.paralogs$pval[i]=res.one$pval
+      pcc.paralogs$cor[i]=res.one$cor
+    }else{
+      # if no paralogs
+      if(grepl(",",test.genes[i])){
+        tmp.split=unlist(strsplit(",",test.genes[i]))
+        tmp.split=tmp.split[tmp.split %in% rownames(avg.rna)]
+        t2=colMeans(avg.rna[tmp.split,])
+      }else{
+        t2=avg.rna[test.genes[i],]
+      }
+      if(length(t1[!is.na(t1)])==0|length(t2[!is.na(t2)])==0){
+        next
+      }
+      comput=cor.test(t1,t2,method="pearson")
+      pcc.paralogs[i,"pval"]=comput$p.value
+      pcc.paralogs[i,"cor"]=comput$estimate
+    }
+    
+  }
+  pcc.paralogs$padj=p.adjust(pcc.paralogs$pval,method="fdr",n=nrow(pcc.paralogs))
+  
+  ## combine the results
+  colnames(pcc)=c("originalTF","originalTF-pval","originalTF-padj","originalTF-cor")
+  pcc$uniqueMF=ph$motif.info[pcc$originalTF,"mfnew"]
+  pcc$trend=ph$motif.info[pcc$originalTF,"trend"]
+  colnames(pcc.paralogs)=c("originalTF","matchedTF","matchedTF-pval","matchedTF-padj","matchedTF-cor")
+  pcc=pcc[order(pcc$originalTF),]
+  pcc.paralogs=pcc.paralogs[order(pcc.paralogs$originalTF),]
+  rownames(pcc)=1:nrow(pcc)
+  rownames(pcc.paralogs)=1:nrow(pcc.paralogs)
+  
+  pcc.final=cbind(pcc,pcc.paralogs) #pcc.paralogs[,2:ncol(pcc.paralogs)]
+  pcc.final=pcc.final[pcc.final$originalTF != "cellnumberFORbins",]
+  
+  ######################
+  # decide to use original or matched paralog
+  pcc.final$chosenTF=""
+  pcc.final$`chosenTF-padj`=1
+  pcc.final$`chosenTF-pval`=1
+  pcc.final$consist=0
+  for(i in 1:nrow(pcc.final)){
+    
+    if(pcc.final$trend[i] %in% c("enhancer","unknown")){
+      #original TF << matched TF
+      if(pcc.final$`originalTF-cor`[i]<=0.1 & pcc.final$`matchedTF-cor`[i]>0.1 & pcc.final$`matchedTF-pval`[i]<0.1){
+        pcc.final$chosenTF[i]=pcc.final$matchedTF[i]
+        pcc.final$`chosenTF-padj`[i]=pcc.final$`matchedTF-padj`[i]
+        pcc.final$`chosenTF-pval`[i]=pcc.final$`matchedTF-pval`[i]
+      }else if(pcc.final$`originalTF-cor`[i]>0.1 & pcc.final$`originalTF-pval`[i]>0.05 & pcc.final$`matchedTF-cor`[i]>0.1 & pcc.final$`matchedTF-padj`[i]<0.05){
+        #original TF is not significant, while matched TF is
+        pcc.final$chosenTF[i]=pcc.final$matchedTF[i]
+        pcc.final$`chosenTF-padj`[i]=pcc.final$`matchedTF-padj`[i]
+        pcc.final$`chosenTF-pval`[i]=pcc.final$`matchedTF-pval`[i]
+      }else{
+        pcc.final$consist[i]=1
+        pcc.final$chosenTF[i]=pcc.final$originalTF[i]
+        pcc.final$`chosenTF-padj`[i]=pcc.final$`originalTF-padj`[i]
+        pcc.final$`chosenTF-pval`[i]=pcc.final$`originalTF-pval`[i]
+      }
+    }else{ #repressor
+      #original TF << matched TF
+      if(pcc.final$`originalTF-cor`[i]>=(-0.1) & pcc.final$`matchedTF-cor`[i]<(-0.1) & pcc.final$`matchedTF-pval`[i]<0.1){
+        pcc.final$chosenTF[i]=pcc.final$matchedTF[i]
+        pcc.final$`chosenTF-padj`[i]=pcc.final$`matchedTF-padj`[i]
+        pcc.final$`chosenTF-pval`[i]=pcc.final$`matchedTF-pval`[i]
+      }else if(pcc.final$`originalTF-cor`[i]<(-0.1) & pcc.final$`originalTF-pval`[i]>0.05 & pcc.final$`matchedTF-cor`[i]<(-0.1) & pcc.final$`matchedTF-padj`[i]<0.05){
+        #original TF is not significant, while matched TF is
+        pcc.final$chosenTF[i]=pcc.final$matchedTF[i]
+        pcc.final$`chosenTF-padj`[i]=pcc.final$`matchedTF-padj`[i]
+        pcc.final$`chosenTF-pval`[i]=pcc.final$`matchedTF-pval`[i]
+      }else{
+        pcc.final$consist[i]=1
+        pcc.final$chosenTF[i]=pcc.final$originalTF[i]
+        pcc.final$`chosenTF-padj`[i]=pcc.final$`originalTF-padj`[i]
+        pcc.final$`chosenTF-pval`[i]=pcc.final$`originalTF-pval`[i]
+      }
+    }
+    
+  }
+  
+  length(unique(pcc.final$chosenTF))
+  table(pcc.final$trend)
+  table(pcc.final$consist)
+  
+  write.table(pcc.final,paste0("~/scATAC/motifenrich/pccRename/",tmp.samples,"_pccResults.txt"),sep = "\t",quote = FALSE)
+  
+}
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+mfinfo=mf2tfnames.all$overall
+rownames(mfinfo)=mfinfo$mfnew.unique
+
+## keep one motif per TF, the priority works like this:
+# 1) take consist=1 & chosenTF-padj<0.2;
+# 2) if not, take consist=0 & chosenTF-padj<0.05 & same origin;
+# 3) if not, take consist=1;
+# 4) else, take consist=0 & lowest chosenTF-padj.
+
+for(i in 1:length(samples)){
+  tmp.samples=names(samples)[i]
+  pcc.res=read.table(paste0("~/scATAC/motifenrich/pccRename/",tmp.samples,"_pccResults.txt"))
+  pcc.res=pcc.res[,!grepl("NA",colnames(pcc.res))];dim(pcc.res)
+  
+  pcc.res$motifid=mfinfo[pcc.res$uniqueMF,"motifid"]
+  pcc.res$origin=mfinfo[pcc.res$uniqueMF,"origin"]
+  pcc.res$keep=0
+  pcc.res$uni=paste(pcc.res$motifid,pcc.res$chosenTF,sep = ",")
+  pcc.res$chosenTFuni=paste(pcc.res$origin,".",pcc.res$chosenTF,"-",
+                            sapply(strsplit(pcc.res$motifid,"-"),"[",1),"-",
+                            sapply(strsplit(pcc.res$motifid,"-"),"[",2),sep="")
+  
+  pcc.res=pcc.res[order(pcc.res$chosenTF,-pcc.res$consist,pcc.res$chosenTF.padj),]
+  for(i in 1:length(unique(pcc.res$chosenTF))){
+    tmp.tf=unique(pcc.res$chosenTF)[i]
+    tmp.res=pcc.res[pcc.res$chosenTF==tmp.tf,]
+    if(nrow(tmp.res[tmp.res$consist==1 & tmp.res$chosenTF.pval<0.05,])==1){
+      tmp.want=tmp.res[tmp.res$consist==1 & tmp.res$chosenTF.pval<0.05,"uni"]
+    }else if(nrow(tmp.res[(tmp.res$consist==0 & tmp.res$chosenTF.padj<0.05) & tmp.res$origin==origin.short,])!=0){
+      tmp.want=tmp.res[(tmp.res$consist==0 & tmp.res$chosenTF.padj<0.05) & tmp.res$origin==origin.short,][1,"uni"]
+    }else if(nrow(tmp.res[tmp.res$consist==1 & tmp.res$origin==origin.short,])==1){
+      tmp.want=tmp.res[tmp.res$consist==1 & tmp.res$origin==origin.short,"uni"]
+    }else{
+      tmp.want=tmp.res[order(tmp.res$chosenTF.padj),][1,"uni"]
+    }
+    pcc.res[pcc.res$uni==tmp.want,"keep"]=1
+  }
+  
+  pcc.final=pcc.res[pcc.res$keep==1,]
+  dim(pcc.res);dim(pcc.final)
+  pcc.final[duplicated(pcc.final$motifid),]
+  
+  write.table(pcc.res,paste0("~/scATAC/motifenrich/pccRename/",tmp.samples,"_pccResults_final.txt"))
+}
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+
+```
+
+## log
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+sessionInfo()
+```
+

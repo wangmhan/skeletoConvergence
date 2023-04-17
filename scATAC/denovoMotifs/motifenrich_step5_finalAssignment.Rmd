@@ -1,0 +1,398 @@
+---
+title: "motifenrich_finalAssignment"
+output: 
+  html_document:
+    df_print: paged
+  html_notebook:
+editor_options:
+  chunk_output_type: inline
+---
+
+```{r setup, message=FALSE, warning=FALSE, echo=FALSE}
+library(Seurat); library(Signac);library(ggplot2)
+library(reshape2); library(dplyr); library(plyr)
+library(TFBSTools)
+library(pheatmap);library(viridisLite)
+
+set.seed(1234)
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+samples=list()
+samples[["limb"]]=c(1,2);samples[["nasal"]]=c(3,4);samples[["somite"]]=c(5,6)
+sample.name <- c("L21","L24","N15","N18","S12","S15")
+data.name <- c("10x_atac_12012021","10x_atac_10042020","10x_atac_12012021","10x_atac_10042020","10x_atac_12012021","10x_atac_12012021")
+anno_path <- "/scicore/home/tschoppp/GROUP/references/genomes/ENS_g6/chicken_Gg6_atac_pre/"
+meta_path <- paste0("~/scATAC/integration/",paste0(names(samples),"_atac_integrated010721_meta.rds"))
+rds_path <- paste0("~/scATAC/integration/",paste0(names(samples),"_atac_integrated010721.rds"))
+
+rna_path <- "/scicore/home/tschoppp/GROUP/lab/Chris.shared/for.Menghan"
+scrna.name = c("forelimb","frontonasal","somites")
+
+tfinfo=read.table("/scicore/home/tschoppp/wang0007/references/Gallus_gallus_TF_AnimalTFDB3_edited.txt",
+                  sep="\t",header = TRUE,stringsAsFactors = FALSE)
+tfinfo$Symbol=toupper(tfinfo$Symbol)
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+# derived from fig3_motifStatistic.Rmd
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+#function
+
+#keep only one motif for each TF
+#--> if exist, use the one with lowest Homer P-value from this origin specific mesenchyme;
+#--> if not, use the one from same origin, other cell type;
+#--> if not, use the one from mesenchyme of other origins;
+#--> if not, use the one from rest.
+
+# function
+get2tf=function(tfnames=mf2tfnames.all$overall,
+                used.origin="L",used.cls="sub|Mschym"){
+  tf.uni=unique(tfnames$tfname)
+  used.tf=data.frame(tfname=tf.uni, mfnew="",id="")
+  
+  for(i in 1:nrow(used.tf)){
+    tmp.tf=used.tf$tfname[i]
+    tmp.candidates=tfnames[tfnames$tfname==tmp.tf,]
+    tmp.testcls.origin=tmp.candidates[grepl(used.cls,tmp.candidates$cls) & tmp.candidates$origin==used.origin,]
+    tmp.testcls=tmp.candidates[grepl(used.cls,tmp.candidates$cls),]
+    tmp.origin=tmp.candidates[tmp.candidates$origin==used.origin,]
+    tmp.any=tmp.candidates
+    #use the one with lowest Homer P-value from this origin specific mesenchyme
+    if(nrow(tmp.testcls.origin)>=1){
+      used.tf$mfnew[i]=tmp.testcls.origin[order(tmp.testcls.origin$homerPval),][1,"mfnew.unique"]
+      used.tf$id[i]=rownames(tmp.testcls.origin[order(tmp.testcls.origin$homerPval),])[1]
+    }else if(nrow(tmp.origin)>=1){ #if not, use the one from same origin, other cell type
+      used.tf$mfnew[i]=tmp.origin[order(tmp.origin$homerPval),][1,"mfnew.unique"]
+      used.tf$id[i]=rownames(tmp.origin[order(tmp.origin$homerPval),])[1]
+    }else if(nrow(tmp.testcls)>=1){ #if not, use the one from mesenchyme of other origins
+      used.tf$mfnew[i]=tmp.testcls[order(tmp.testcls$homerPval),][1,"mfnew.unique"]
+      used.tf$id[i]=rownames(tmp.testcls[order(tmp.testcls$homerPval),])[1]
+    }else{ #if not, use the one from rest
+      used.tf$mfnew[i]=tmp.any[order(tmp.any$homerPval),][1,"mfnew.unique"]
+      used.tf$id[i]=rownames(tmp.any[order(tmp.any$homerPval),])[1]
+    }
+  }
+  used.tf$res=gsub("\\||-",".",used.tf$mfnew)
+  return(used.tf)
+
+}
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+mf2tfnames.all=readRDS(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/shiny/all_denovoMotifs_mf2tfnames.rds"))
+
+mf.all=readRDS(paste0("~/scATAC/motifenrich/forStamp/LNS_denovoMotifs_assigned.rds")) 
+names(mf.all)=gsub("limb\\.L\\.","",names(mf.all))
+names(mf.all)=gsub("nasal\\.N\\.","",names(mf.all))
+names(mf.all)=gsub("somite\\.S\\.","",names(mf.all))
+
+tfs=read.table("/scicore/home/tschoppp/wang0007/references/Gallus_gallus_TF_AnimalTFDB3_edited.txt",sep="\t",header = TRUE,stringsAsFactors = FALSE)
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+
+```
+
+## To summarize the motif set
+
+### only mesenchyme, after rename.
+
+First, keep one motif per TF name by this order:
+--> if exist, use the one with lowest Homer P-value from this origin specific chondrocytes;
+--> if exist, use the one with lowest Homer P-value from this origin specific mesenchyme mesenchyme populations from Pseudotime;
+--> if exist, use the one with lowest Homer P-value from this origin specific mesenchyme;
+--> if not, use the one with lowest Homer P-value from mesenchyme of other origins;
+--> if not, use the one with lowest Homer P-value from same origin, other cell type;
+if not, use the one with lowest Homer P-value from rest.
+
+Then, calculate correlation along pseudotime bin. Compare the correlation with paralogs from Ensembl::Biomart.
+Follow the flow chart in powerpoint:scATAC_pseudotime_v2.pptx
+For Activator or unknown: If originalTF.cor <=0.1 & matchedTF.cor>0.1 & matchedTF.pval<0.1 --> matchedTF;
+Else if originalTF.cor>0.1 &originalTF.pval>0.05 & matchedTF.cor>0.1 & matchedTF.padj<0.05 --> matchedTF;
+Else --> original TF.
+For Repressor: If originalTF.cor >=(-0.1) & matchedTF.cor<(-0.1) & matchedTF.pval<0.1 --> matchedTF;
+Else if originalTF.cor<(-0.1) &originalTF.pval>0.05 & matchedTF.cor<(-0.1) & matchedTF.padj<0.05 --> matchedTF;
+Else --> original TF.
+
+After that:Keep one motif per TF, by this order:
+--> consist=1 & chosenTF.pval<0.05,
+--> if not, consist=0 & chosenTF.padj<0.05,
+--> if not, consist=1,
+--> if not, the one with lowest chosenTF.padj.
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+mf.mesenchyme=list()
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+origin="nasal"
+pcc.final=read.table(paste0("~/scATAC/motifenrich/pccRename/",origin,"_pccResults_final.txt"))
+pcc.final=pcc.final[pcc.final$keep==1,];dim(pcc.final)
+
+mf.tmp=mf2tfnames.all$overall[pcc.final$motifid,];dim(mf.tmp)
+mf.tmp$mfnew.version1=mf.tmp$mfnew.unique
+mf.tmp$mfnew.unique=pcc.final$chosenTFuni
+mf.tmp$tfname=pcc.final$chosenTF
+mf.tmp=mf.tmp[,c("motifid","tfname","homerPval","defineClass","trend","cls","clsname","origin","mfnew.version1","mfnew.unique")]
+mf.mesenchyme[[origin]]=mf.tmp
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+origin="somite"
+pcc.final=read.table(paste0("~/scATAC/motifenrich/pccRename/",origin,"_pccResults_final.txt"))
+pcc.final=pcc.final[pcc.final$keep==1,];dim(pcc.final)
+
+mf.tmp=mf2tfnames.all$overall[pcc.final$motifid,];dim(mf.tmp)
+mf.tmp$mfnew.version1=mf.tmp$mfnew.unique
+mf.tmp$mfnew.unique=pcc.final$chosenTFuni
+mf.tmp$tfname=pcc.final$chosenTF
+mf.tmp=mf.tmp[,c("motifid","tfname","homerPval","defineClass","trend","cls","clsname","origin","mfnew.version1","mfnew.unique")]
+mf.mesenchyme[[origin]]=mf.tmp
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+origin="limb"
+pcc.final=read.table(paste0("~/scATAC/motifenrich/pccRename/",origin,"_pccResults_final.txt"))
+pcc.final=pcc.final[pcc.final$keep==1,];dim(pcc.final)
+
+mf.tmp=mf2tfnames.all$overall[pcc.final$motifid,];dim(mf.tmp)
+mf.tmp$mfnew.version1=mf.tmp$mfnew.unique
+mf.tmp$mfnew.unique=pcc.final$chosenTFuni
+mf.tmp$tfname=pcc.final$chosenTF
+mf.tmp=mf.tmp[,c("motifid","tfname","homerPval","defineClass","trend","cls","clsname","origin","mfnew.version1","mfnew.unique")]
+mf.mesenchyme[[origin]]=mf.tmp
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+## save
+saveRDS(mf.mesenchyme,paste0("~/scATAC/motifenrich/pccRename/mesenchyme_denovoMotifs_mf2tfnames.rds"))
+```
+
+### all cell types, after rename.
+
+First, use the reassigned motif annotation.
+
+Then, keep one motif per TF name by this order:
+--> if exist, use the one with lowest Homer P-value from this origin specific mesenchyme;
+--> if not, use the one from same origin, other cell type;
+--> if not, use the one from mesenchyme of other origins;
+--> if not, use the one from rest.
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+mf.allcelltypes=list()
+mf.mesenchyme=readRDS(paste0("~/scATAC/motifenrich/pccRename/mesenchyme_denovoMotifs_mf2tfnames.rds"))
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+origin="nasal"
+pcc.final=read.table(paste0("~/scATAC/motifenrich/pccRename/",origin,"_pccResults_final.txt"))
+pcc.final=pcc.final[pcc.final$keep==1,];dim(pcc.final)
+
+mf.rest=mf2tfnames.all$overall[!(mf2tfnames.all$overall$tfname %in% pcc.final$chosenTF),];dim(mf.rest)
+mf.rest$mfnew.version1=mf.rest$mfnew.unique
+mf.rest=mf.rest[,c("motifid","tfname","homerPval","defineClass","trend","cls","clsname","origin","mfnew.version1","mfnew.unique")]
+
+used.tf=get2tf(tfnames=mf.rest,
+               used.origin="N",used.cls="sub|Mschym");dim(used.tf)
+mf.rest.tmp=mf.rest[mf.rest$motifid %in% used.tf$id,]
+mf.tmp=rbind(mf.rest.tmp,mf.mesenchyme[[origin]]);dim(mf.tmp)
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+mf.rename=mf.tmp
+mf.rename$tfname=sapply(strsplit(mf.rename$mfnew.unique,"L\\.|S\\.|N\\.|-cls"),"[",2)
+num.id=table(mf.rename$motifid)
+num.id=num.id[order(-num.id)]
+mf.rename$motifid=factor(mf.rename$motifid,levels = names(num.id))
+mf.rename=mf.rename[order(mf.rename$motifid),]
+
+#compare with mf.mesenchyme to manually picked the ones need to remove
+tmp=mf.mesenchyme[[origin]]
+tmp$motifid=factor(tmp$motifid,levels = names(num.id))
+tmp=tmp[order(tmp$motifid),]
+#tmp[tmp$tfname=="FLI1",]
+#mf.rename[mf.rename$tfname=="GLI3",]
+
+#remove the ones redundant with mf.mesenchyme
+mf.rename$unique=paste(mf.rename$motifid,mf.rename$tfname,sep = ",")
+#manually check
+rm.uni=c("clssub3-50-TDGCACTG,YBX1|YBX3","clssub4-9-CACAKGGYC,MAX|MYC","clssub6-21-AAAGCGCA,RUNX1|RUNX2|RUNX3",
+         "cls15-6-NVTGASTCA,BATF|JUN","clsMschym-17-GCGTGTA,AHR|ARNT","clssub4-20-AGGAGTCC,FOS|JUN",
+         "clssub5-29-AGTDCGTG,GLI3|GLI1","clssub6-37-CAAAAAGA,STAT1|STAT2","clssub6-46-ATTACGTC,FOSL2|JUN",
+         "clssub7-37-TTCTGCTG,BACH1|MAFK")
+mf.rename=mf.rename[!(mf.rename$unique %in% rm.uni),]
+
+#remove if already exist in mf.mesenchyme, keep if doesn't exist
+for(i in 1:nrow(mf.rename)){
+  tmp.tf=mf.rename$tfname[i]
+  if(grepl("\\|",tmp.tf)){ #replace the one with "|"
+    tmp.split=unlist(strsplit(tmp.tf,"\\|"))
+    for(j in 1:length(tmp.split)){
+      if(!(tmp.split[j] %in% mf.rename$tfname)){ #if not exist, keep
+        tmp.add=mf.rename[i,]
+        tmp.add$tfname=tmp.split[j]
+        tmp.add$mfnew.unique=paste0(tmp.add$origin,".",tmp.add$tfname,"-",
+                                    unlist(strsplit(as.character(tmp.add$motifid),"-"))[1],"-",unlist(strsplit(as.character(tmp.add$motifid),"-"))[2])
+        mf.rename=rbind(mf.rename,tmp.add)
+      }else{ #if exist, don't keep
+        next
+      }
+    }
+    mf.rename$tfname[i]="rename"
+  }
+}
+mf.rename=mf.rename[mf.rename$tfname!="rename",]
+dim(mf.rename)
+
+mf.allcelltypes[[origin]]=mf.rename
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+origin="somite"
+pcc.final=read.table(paste0("~/scATAC/motifenrich/pccRename/",origin,"_pccResults_final.txt"))
+pcc.final=pcc.final[pcc.final$keep==1,];dim(pcc.final)
+
+mf.rest=mf2tfnames.all$overall[!(mf2tfnames.all$overall$tfname %in% pcc.final$chosenTF),];dim(mf.rest)
+mf.rest$mfnew.version1=mf.rest$mfnew.unique
+mf.rest=mf.rest[,c("motifid","tfname","homerPval","defineClass","trend","cls","clsname","origin","mfnew.version1","mfnew.unique")]
+
+used.tf=get2tf(tfnames=mf.rest,
+               used.origin="S",used.cls="sub|Mschym");dim(used.tf)
+mf.rest.tmp=mf.rest[mf.rest$motifid %in% used.tf$id,]
+mf.tmp=rbind(mf.rest.tmp,mf.mesenchyme[[origin]]);dim(mf.tmp)
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+mf.rename=mf.tmp
+mf.rename$tfname=sapply(strsplit(mf.rename$mfnew.unique,"L\\.|S\\.|N\\.|-cls"),"[",2)
+num.id=table(mf.rename$motifid)
+num.id=num.id[order(-num.id)]
+mf.rename$motifid=factor(mf.rename$motifid,levels = names(num.id))
+mf.rename=mf.rename[order(mf.rename$motifid),]
+
+#compare with mf.mesenchyme to manually picked the ones need to remove
+tmp=mf.mesenchyme[[origin]]
+tmp$motifid=factor(tmp$motifid,levels = names(num.id))
+tmp=tmp[order(tmp$motifid),]
+#tmp[tmp$tfname=="FLI1",]
+#mf.rename[mf.rename$tfname=="GLI3",]
+
+#remove the ones redundant with mf.mesenchyme
+mf.rename$unique=paste(mf.rename$motifid,mf.rename$tfname,sep = ",")
+#manually check
+rm.uni=c("clssub4-38-AGCGTACC,YBX1|YBX3","clssub4-55-AGGGATAT,LIN28A|LIN28B","clssub4-9-CACAKGGYC,MAX|MYC","clssub5-41-TTTGTCAT,NPC1|NPC2",
+         "clssub6-21-AAAGCGCA,RUNX1|RUNX2|RUNX3","cls12-12-CCTGVRGCACA,TFAP2C|TFAP2D","clsMschym-28-TCTCCCC,EWSR1|FLI1","clssub5-29-AGTDCGTG,GLI3|GLI1",
+         "clssub6-46-ATTACGTC,FOSL2|JUN","clssub7-37-TTCTGCTG,BACH1|MAFK")
+mf.rename=mf.rename[!(mf.rename$unique %in% rm.uni),]
+
+#remove if already exist in mf.mesenchyme, keep if doesn't exist
+for(i in 1:nrow(mf.rename)){
+  tmp.tf=mf.rename$tfname[i]
+  if(grepl("\\|",tmp.tf)){ #replace the one with "|"
+    tmp.split=unlist(strsplit(tmp.tf,"\\|"))
+    for(j in 1:length(tmp.split)){
+      if(!(tmp.split[j] %in% mf.rename$tfname)){ #if not exist, keep
+        tmp.add=mf.rename[i,]
+        tmp.add$tfname=tmp.split[j]
+        tmp.add$mfnew.unique=paste0(tmp.add$origin,".",tmp.add$tfname,"-",
+                                    unlist(strsplit(as.character(tmp.add$motifid),"-"))[1],"-",unlist(strsplit(as.character(tmp.add$motifid),"-"))[2])
+        mf.rename=rbind(mf.rename,tmp.add)
+      }else{ #if exist, don't keep
+        next
+      }
+    }
+    mf.rename$tfname[i]="rename"
+  }
+}
+mf.rename=mf.rename[mf.rename$tfname!="rename",]
+dim(mf.rename)
+
+mf.allcelltypes[[origin]]=mf.rename
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+origin="limb"
+pcc.final=read.table(paste0("~/scATAC/motifenrich/pccRename/",origin,"_pccResults_final.txt"))
+pcc.final=pcc.final[pcc.final$keep==1,];dim(pcc.final)
+
+mf.rest=mf2tfnames.all$overall[!(mf2tfnames.all$overall$tfname %in% pcc.final$chosenTF),];dim(mf.rest)
+mf.rest$mfnew.version1=mf.rest$mfnew.unique
+mf.rest=mf.rest[,c("motifid","tfname","homerPval","defineClass","trend","cls","clsname","origin","mfnew.version1","mfnew.unique")]
+
+used.tf=get2tf(tfnames=mf.rest,
+               used.origin="L",used.cls="sub|Mschym");dim(used.tf)
+mf.rest.tmp=mf.rest[mf.rest$motifid %in% used.tf$id,]
+mf.tmp=rbind(mf.rest.tmp,mf.mesenchyme[[origin]]);dim(mf.tmp)
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+mf.rename=mf.tmp
+mf.rename$tfname=sapply(strsplit(mf.rename$mfnew.unique,"L\\.|S\\.|N\\.|-cls"),"[",2)
+num.id=table(mf.rename$motifid)
+num.id=num.id[order(-num.id)]
+mf.rename$motifid=factor(mf.rename$motifid,levels = names(num.id))
+mf.rename=mf.rename[order(mf.rename$motifid),]
+
+#compare with mf.mesenchyme to manually picked the ones need to remove
+tmp=mf.mesenchyme[[origin]]
+tmp$motifid=factor(tmp$motifid,levels = names(num.id))
+tmp=tmp[order(tmp$motifid),]
+#tmp[tmp$tfname=="FLI1",]
+#mf.rename[mf.rename$tfname=="GLI3",]
+
+#remove the ones redundant with mf.mesenchyme
+mf.rename$unique=paste(mf.rename$motifid,mf.rename$tfname,sep = ",")
+#manually check
+rm.uni=c("clssub4-9-CACAKGGYC,MAX|MYC","clssub5-29-AGTDCGTG,GLI3|GLI1","clssub6-21-AAAGCGCA,RUNX1|RUNX2|RUNX3",
+         "clssub2-1-ACCAGATG,TAL1|TCF3","clssub3-7-AGCTTGYTG,ZIC1|ZIC2","clssub4-20-AGGAGTCC,FOS|JUN",
+         "clssub4-38-AGCGTACC,YBX1|YBX3","clssub5-37-GTGTGCGT,AHR|ARNT","clssub6-3-DTTCCCWGG,EBF1|EBF3",
+         "clssub6-31-GGGGCTGC,E2F4|E2F5","clssub6-46-ATTACGTC,FOSL2|JUN","clssub6-9-CRGGRART,EWSR1|FLI1",
+         "clssub7-37-TTCTGCTG,BACH1|MAFK")
+mf.rename=mf.rename[!(mf.rename$unique %in% rm.uni),]
+
+#remove if already exist in mf.mesenchyme, keep if doesn't exist
+for(i in 1:nrow(mf.rename)){
+  tmp.tf=mf.rename$tfname[i]
+  if(grepl("\\|",tmp.tf)){ #replace the one with "|"
+    tmp.split=unlist(strsplit(tmp.tf,"\\|"))
+    for(j in 1:length(tmp.split)){
+      if(!(tmp.split[j] %in% mf.rename$tfname)){ #if not exist, keep
+        tmp.add=mf.rename[i,]
+        tmp.add$tfname=tmp.split[j]
+        tmp.add$mfnew.unique=paste0(tmp.add$origin,".",tmp.add$tfname,"-",
+                                    unlist(strsplit(as.character(tmp.add$motifid),"-"))[1],"-",unlist(strsplit(as.character(tmp.add$motifid),"-"))[2])
+        mf.rename=rbind(mf.rename,tmp.add)
+      }else{ #if exist, don't keep
+        next
+      }
+    }
+    mf.rename$tfname[i]="rename"
+  }
+}
+mf.rename=mf.rename[mf.rename$tfname!="rename",]
+dim(mf.rename)
+
+mf.allcelltypes[[origin]]=mf.rename
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+## save
+#saveRDS(mf.allcelltypes,paste0("~/scATAC/motifenrich/pccRename/allcelltypes_denovoMotifs_mf2tfnames.rds"))
+saveRDS(mf.allcelltypes,paste0("~/scATAC/motifenrich/pccRename/allcelltypes_denovoMotifs_mf2tfnames_v2.rds"))
+```
+
+
+## log
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+sessionInfo()
+```
+
