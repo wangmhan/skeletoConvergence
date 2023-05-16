@@ -1,0 +1,183 @@
+---
+title: "pseudotime_step1"
+output: 
+  html_document:
+    df_print: paged
+  html_notebook:
+editor_options:
+  chunk_output_type: inline
+--- 
+
+```{r setup, message=FALSE, warning=FALSE, echo=FALSE}
+library(Signac); library(Seurat)
+library(slingshot)
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+#gene name info
+gene.info=read.table("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/ensembl97_geneinfo.txt",
+                     sep="\t",header = TRUE,row.names = 1,stringsAsFactors = FALSE)
+gene.info[gene.info$genename=="","genename"]=rownames(gene.info[gene.info$genename=="",])
+gene.info$genename=toupper(gene.info$genename)
+
+my.W = read.table("~/scRNA/ensembl97_wgenes.txt",sep="\t",header = TRUE,row.names = 1,stringsAsFactors = FALSE)
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+my.origins=c("limb","somite","nasal")
+my.files=paste0("~/scRNA/clustering/subset_",my.origins,".rds")
+my.pfiles=paste0("~/scRNA/pseudotime/ptime_",my.origins,"_slingshot.rds")
+my.mfiles=paste0("~/scRNA/clustering/meta_",my.origins,".rds")
+cid=c("curve1","curve2","curve4")
+
+cls.retain=list()
+cls.retain[["nasal"]]=c("neuralcrestDerivedMesenchyme","eyeConnectiveTissue","chondrocytes")
+cls.retain[["somite"]]=c("somite2","somite1","chondrocytes")
+cls.retain[["limb"]]=c("WNT5AMesenchyme","chondrocytes","lateChondrocytes","amb_mesenchymeORnsConnectiveTissue")
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+for(i in 1:length(my.origins)){
+  tmp.samples=my.origins[i]
+  
+  ######################
+  # scATAC data
+  subset.atac=readRDS(paste0("/scicore/home/tschoppp/wang0007/scATAC/integration/",tmp.samples,"_atac_intgtFine010721.rds"))
+  my.meta=readRDS(paste0("/scicore/home/tschoppp/wang0007/scATAC/integration/",tmp.samples,"_atac_integrated010721_meta.rds"))
+  subset.atac=AddMetaData(subset.atac,metadata = my.meta[rownames(subset.atac@meta.data),c("broad","annotation_broad","fine","annotation_fine")],col.name = c("broad","annotation_broad","fine","annotation_fine"))
+  
+  ######################
+  # scRNA-seq data
+  tmp.samples=my.origins[i]
+  origin=tmp.samples
+  if(origin=="limb"){
+    j=1
+  }else if(origin=="somite"){
+    j=2
+  }else if(origin=="nasal"){
+    j=3
+  }
+  
+  subset.rna=readRDS(my.files[j])
+  subset.rna@active.assay="RNA"
+  get_slshot=readRDS(my.pfiles[j])
+  meta.rna=readRDS(my.mfiles[j]); dim(meta.rna)
+  
+  #add pseudotime & subset
+  meta.rna$pseudotime=slingPseudotime(get_slshot[["xtsne"]])[,cid[j]][rownames(meta.rna)]
+  meta.rna=meta.rna[!is.na(meta.rna$pseudotime),]; dim(meta.rna)
+  
+  #subset to only those in chondrogenesis
+  my.subset=subset(subset.rna,cells = rownames(meta.rna))
+  meta.rna=meta.rna[rownames(my.subset@meta.data),]
+  my.subset=AddMetaData(my.subset,meta.rna[rownames(my.subset@meta.data),c("pseudotime","annotation_fine")])
+  
+  ######################
+  # transfer anchor
+  atac=subset.atac
+  rna=my.subset
+  usedatac = 'activity_combat'
+  usedrna = 'integrated'
+  embed.transfer="harmony"
+  dims.anchor=1:30
+  
+  DefaultAssay(atac) <- usedatac; DefaultAssay(rna) <- usedrna 
+  hvgs=VariableFeatures(rna)[!(VariableFeatures(rna) %in% my.W$ensembl_gene_id)];print(length(hvgs))
+  hvgs = hvgs[hvgs %in% rownames(atac[[usedatac]])];print(length(hvgs))
+  
+  transfer.anchors <- FindTransferAnchors(
+    reference = rna,query = atac,dims = dims.anchor,
+    reference.assay = usedrna, query.assay = usedatac,
+    max.features = 200, k.filter = 200, #default
+    reduction = 'cca',features = hvgs
+  )
+  
+  ######################
+  # transfer ptbin as categorical--> filter out less confident
+  #put cells into n pseudotime bins
+  n=20
+  max=max(rna$pseudotime)
+  intervals=seq(0,max,by=max/n)
+  rna@meta.data$ptbins=100
+  for(j in 1:(length(intervals)-1)){
+    ptmin=as.numeric(intervals[j])
+    ptmax=as.numeric(intervals[(j+1)])
+    rna@meta.data[rna@meta.data$pseudotime >= ptmin & rna@meta.data$pseudotime < ptmax,"ptbins"]=j
+  }
+  rna@meta.data[rna@meta.data$ptbins==100,"ptbins"]=n
+  table(rna@meta.data$ptbins)
+  
+  ptmtx=rna@meta.data[,c("pseudotime","ptbins")]
+  ptcat=factor(ptmtx$ptbins,levels = as.character(1:n))
+  names(ptcat)=rownames(rna@meta.data)
+  
+  predicted.labels <- TransferData(
+    anchorset = transfer.anchors,
+    refdata = ptcat,
+    weight.reduction = atac[[embed.transfer]],
+    dims = 2:30
+  )
+  hist(predicted.labels$prediction.score.max,n=40)
+  
+  ######################
+  # transfer pseudotime value--> only trust the one with confident ptbin
+  predicted.ptime <- TransferData(
+    anchorset = transfer.anchors,
+    refdata = t(ptmtx),
+    weight.reduction = atac[[embed.transfer]],
+    dims = 2:30
+  )
+  
+  tfptime=GetAssayData(predicted.ptime,slot = "data")
+  tfptime=as.data.frame(t(as.matrix(tfptime)))
+  tfptime$ptbins=predicted.labels[rownames(tfptime),"predicted.id"]
+  tfptime$prediction.score.max=predicted.labels[rownames(tfptime),"prediction.score.max"]
+  tfptime$annotation_fine=subset.atac@meta.data[rownames(tfptime),"annotation_fine"]
+  
+  #manually set cutoff
+  tfptime$trustpt="N"
+  tfptime[tfptime$prediction.score.max>quantile(tfptime$prediction.score.max,0.4),"trustpt"]="Y"
+  # & restrict by cell type (based on known chondrogenesis info)
+  tfptime[!(tfptime$annotation_fine %in% cls.retain[[tmp.samples]]),"trustpt"]="N"
+  tfptime$ptime_retain=tfptime$pseudotime
+  tfptime[tfptime$trustpt=="N","ptime_retain"]=NA;table(tfptime$trustpt)
+  
+  # relaxed cutoff
+  tfptime.new=tfptime
+  tfptime.new$trustpt="Y"
+  # & restrict by cell type (based on known chondrogenesis info)
+  tfptime.new[!(tfptime.new$annotation_fine %in% c("somite2","somite1","chondrocytes")),"trustpt"]="N"
+  tfptime.new$ptime_retain=tfptime.new$pseudotime
+  tfptime.new[tfptime.new$trustpt=="N","ptime_retain"]=NA;table(tfptime.new$trustpt)
+  
+  ######################
+  # read in pseudotime value
+  atac=AddMetaData(atac,tfptime[rownames(atac@meta.data),c("ptime_retain")],col.name = "pseudotime")
+  p1=DimPlot(atac,reduction = "xtsne",group.by = "annotation_fine",label = TRUE)+NoLegend()
+  p2=FeaturePlot(atac,features = "pseudotime",reduction = "xtsne")
+  print(p1+p2)
+  
+  #save
+  ptsum=tfptime
+  ptsum$pseudotime.transferData=tfptime$ptime_retain
+  ptsum$pseudotime.transferData.relaxed=tfptime.new[rownames(ptsum),"ptime_retain"]
+  saveRDS(ptsum,paste0("~/scATAC/pseudotime/ptime_scatac_",tmp.samples,"_summary.rds"))
+
+}
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+
+```
+
+## log
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+sessionInfo()
+```

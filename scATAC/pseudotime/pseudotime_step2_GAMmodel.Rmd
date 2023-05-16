@@ -1,0 +1,116 @@
+---
+title: "pseudotime_step2"
+output: 
+  html_document:
+    df_print: paged
+  html_notebook:
+editor_options:
+  chunk_output_type: inline
+--- 
+
+```{r setup, message=FALSE, warning=FALSE, echo=FALSE}
+library(Signac); library(Seurat)
+library(gam)
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+#gene name info
+gene.info=read.table("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/ensembl97_geneinfo.txt",
+                     sep="\t",header = TRUE,row.names = 1,stringsAsFactors = FALSE)
+gene.info[gene.info$genename=="","genename"]=rownames(gene.info[gene.info$genename=="",])
+gene.info$genename=toupper(gene.info$genename)
+
+#motif annotation set
+mf.all=readRDS("~/scATAC/motifReassign/motifUnion_originConsist.rds")
+mfunion.used=rbind(mf.all$nasal,mf.all$somite,mf.all$limb)
+mfunion.used$unique=paste0(mfunion.used$origin,"_",
+                           sapply(strsplit(mfunion.used$motifid,"-"),"[",1),"_",
+                           sapply(strsplit(mfunion.used$motifid,"-"),"[",2),"_",
+                           mfunion.used$tfname)
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+my.origins=c("limb","somite","nasal")
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+for(i in 1:length(my.origins)){
+  tmp.samples=my.origins[i]
+  
+  ######################
+  # scATAC data
+  subset.atac=readRDS(paste0("/scicore/home/tschoppp/wang0007/scATAC/integration/",tmp.samples,"_atac_intgtFine010721.rds"))
+  my.meta=readRDS(paste0("/scicore/home/tschoppp/wang0007/scATAC/integration/",tmp.samples,"_atac_integrated010721_meta.rds"))
+  subset.atac=AddMetaData(subset.atac,metadata = my.meta[rownames(subset.atac@meta.data),c("broad","annotation_broad","fine","annotation_fine")],col.name = c("broad","annotation_broad","fine","annotation_fine"))
+  
+  ################
+  ## read in chromvar motif activity
+  chromvar.mtx=read.table(gzfile(paste0("~/scATAC/motifenrich/",tmp.samples,"_chromvarDenovo-LNSmotifs.txt.gz")), sep = "\t")
+  colnames(chromvar.mtx)=gsub("\\.1","-1",colnames(chromvar.mtx))
+  rownames(chromvar.mtx)=substr(rownames(chromvar.mtx),1,20)
+  chromvar.mtx=as.matrix(chromvar.mtx)
+  rownames(chromvar.mtx)=gsub("sub-","sub",rownames(chromvar.mtx))
+  
+  subset.atac[["chromvar"]]=CreateAssayObject(data=chromvar.mtx[,colnames(subset.atac)])
+  subset.atac@assays$chromvar@scale.data=chromvar.mtx[,colnames(subset.atac)]
+  
+  ################
+  ## read in pseudotime
+  
+  #get pseudotime & ptbins
+  pt.meta=readRDS(paste0("~/scATAC/pseudotime/ptime_scatac_",tmp.samples,"_summary.rds"))
+  ptatac=pt.meta;ptatac.selected="pseudotime.transferData.relaxed"
+  subset.atac <- AddMetaData(
+    object = subset.atac,
+    metadata = ptatac[rownames(subset.atac@meta.data),ptatac.selected],
+    col.name = "pseudotime"
+  )
+  my.data=subset(subset.atac,cells=rownames(ptatac[!is.na(ptatac[,ptatac.selected]),]))
+  my.meta=my.data@meta.data
+  
+  ################
+  ## GAM model
+  
+  Y <- GetAssayData(my.data,assay = "chromvar",slot = "scale.data")
+  t = my.data@meta.data$pseudotime
+  
+  gam.pval <- apply(Y, 1, function(z){
+    d <- data.frame(z=z, t=t)
+    tmp <- gam::gam(z ~ lo(t), data=d)
+    p <- summary(tmp)[4][[1]][1,5]
+    p
+  })
+  length(gam.pval[gam.pval < 0.01])
+  gam.padj <- p.adjust(gam.pval,method = "fdr",n=length(gam.pval)) #"BH","bonferroni"
+  length(gam.padj[gam.padj < 0.05]);sort(gam.padj)[1:20]
+  gam.mtx=data.frame(geneid=names(gam.pval),
+                     pval=gam.pval,
+                     padj=gam.padj);dim(gam.mtx)
+  
+  # save
+  write.table(gam.mtx,paste0("~/scATAC/pseudotime/temporal_scatac_diffMotifsGAM_",tmp.samples,".txt"))
+  
+}
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+
+```
+
+## log
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+sessionInfo()
+```
+
