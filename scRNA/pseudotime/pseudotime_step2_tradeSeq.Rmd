@@ -1,0 +1,111 @@
+---
+title: "pseudotime_step2"
+output: 
+  html_document:
+    df_print: paged
+  html_notebook:
+editor_options:
+  chunk_output_type: inline
+--- 
+
+```{r setup, message=FALSE, warning=FALSE, echo=FALSE}
+library(slingshot); library(Seurat)
+library(ggplot2); library(scran)
+library(tradeSeq);library(mgcv)
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+my.origins=c("limb","somite","nasal")
+my.files=paste0("~/scRNA/clustering/subset_",my.origins,".rds")
+my.pfiles=paste0("~/scRNA/pseudotime/ptime_",my.origins,"_slingshot.rds")
+my.mfiles=paste0("~/scRNA/clustering/meta_",my.origins,".rds")
+cid=c("curve1","curve2","curve4")
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+#zero-inflated datasets: https://statomics.github.io/tradeSeq/articles/fitGAM.html
+control <- gam.control()
+control$maxit <- 1000
+
+set.seed(3)
+
+#paralell as take quite some time
+BPPARAM <- BiocParallel::bpparam()
+BPPARAM
+BPPARAM$workers <- 2
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+for(i in 1:length(my.origins)){
+  # read in scRNA-seq data
+  tmp.samples=my.origins[i]
+  origin=tmp.samples
+  if(origin=="limb"){
+    j=1
+  }else if(origin=="somite"){
+    j=2
+  }else if(origin=="nasal"){
+    j=3
+  }
+  
+  subset.rna=readRDS(my.files[j])
+  subset.rna@active.assay="RNA"
+  get_slshot=readRDS(my.pfiles[j])
+  meta.rna=readRDS(my.mfiles[j]); dim(meta.rna)
+  
+  #add pseudotime & subset
+  meta.rna$pseudotime=slingPseudotime(get_slshot[["xtsne"]])[,cid[j]][rownames(meta.rna)]
+  meta.rna=meta.rna[!is.na(meta.rna$pseudotime),]; dim(meta.rna)
+  
+  #subset to only those in chondrogenesis
+  my.subset=subset(subset.rna,cells = rownames(meta.rna))
+  meta.rna=meta.rna[rownames(my.subset@meta.data),]
+  
+  #select nknots based on middle panel: show that the drop in AIC levels off if the number of knots is increased beyond N, and we will choose that number of knots to fit the tradeSeq models.
+  icMat <- evaluateK(counts = as(GetAssayData(my.subset[["RNA"]],slot = "counts"),"matrix"), 
+                     #sds = get_slshot[["xtsne"]], 
+                     pseudotime=slingPseudotime(get_slshot[['xtsne']])[colnames(my.subset),curve.id], cellWeights=slingCurveWeights(get_slshot[['xtsne']])[colnames(my.subset),curve.id],
+                     k = 3:10, nGenes = 100, verbose = T, plot=T, U=model.matrix(~ orig.ident,my.subset@meta.data))
+  
+  # DE analysis
+  nknots=6 #use default
+  curve.id=cid[j]
+  genes=rownames(GetAssayData(my.subset[["RNA"]]))
+  sim.obj <- fitGAM(counts=as(GetAssayData(my.subset[["RNA"]],slot = "counts"),"matrix"), 
+                    pseudotime=slingPseudotime(get_slshot[['xtsne']])[colnames(my.subset),curve.id], 
+                    cellWeights=slingCurveWeights(get_slshot[['xtsne']])[colnames(my.subset),curve.id],
+                    nknots = nknots, verbose = FALSE, 
+                    U=model.matrix(~ orig.ident,my.subset@meta.data), 
+                    control = control, parallel=TRUE, BPPARAM = BPPARAM)
+  ATres.obj <- associationTest(sim.obj,l2fc=log2(1.5))
+  ATres.obj$padjust=p.adjust(ATres.obj$pvalue,method="fdr",n=nrow(ATres.obj))
+  ATres.obj$genename=gene.info[rownames(ATres.obj),"genename"]
+  ATres.obj=ATres.obj[ATres.obj$padjust<0.05 & !is.na(ATres.obj$pvalue),]
+  ATres.obj=ATres.obj[order(ATres.obj$padjust),]; dim(ATres.obj)
+  
+  # save
+  saveRDS(sim.obj, paste0("~/scRNA/pseudotime/ptime_",tmp.samples,"_slingshot_allgenes.rds"))
+  write.table(ATres.obj,"~/scRNA/pseudotime/ptime_limb_slingshot_degs.txt", sep = "\t",row.names = TRUE,col.names = TRUE)
+  
+  
+}
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+
+```
+
+## log
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+sessionInfo()
+```
+

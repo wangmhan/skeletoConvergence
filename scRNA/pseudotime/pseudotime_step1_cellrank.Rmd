@@ -1,0 +1,221 @@
+---
+title: "pseudotime_step1"
+output: 
+  html_document:
+    df_print: paged
+  html_notebook:
+editor_options:
+  chunk_output_type: inline
+--- 
+
+cellrank & scvelo
+
+```{r setup, message=FALSE, warning=FALSE, echo=FALSE}
+Sys.setenv(RETICULATE_PYTHON = "/scicore/home/tschoppp/wang0007/scanpy/bin/python")
+library(reticulate)
+use_virtualenv("/scicore/home/tschoppp/wang0007/scanpy",required = TRUE)
+
+```
+
+```{python}
+import os
+import sys
+
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import scanpy as sc
+import loompy
+import seaborn as sb
+
+import cellrank as cr
+from cellrank.tl.estimators import GPCCA
+from cellrank.tl.kernels import VelocityKernel
+cr.__version__
+
+import scvelo as scv
+scv.__version__
+
+#%matplotlib inline
+```
+```{python}
+print(os.getcwd())
+```
+
+```{python}
+wgenes=pd.read_csv('/scicore/home/tschoppp/wang0007/scRNA/ensembl97_wgenes.txt',sep='\t')
+ldata = scv.read('/scicore/home/tschoppp/wang0007/scRNA/pseudotime/cellrank/velocity_9samples.loom', cache=True)
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+library(Seurat)
+```
+
+## nasal
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+tmp.samples="nasal"
+
+#save loom file
+my.data = readRDS(my.files[1])
+my.data = readRDS(paste0("~/scRNA/clustering/subset_",tmp.samples,".rds"))
+my.data.loom=as.loom(my.data,filename = paste0("~/scRNA/pseudotime/cellrank/scrnaSub_",tmp.samples,".loom"), 
+                          assay="integrated", verbose = FALSE, overwrite = TRUE)
+detach(my.data);detach(my.data.loom)
+```
+
+```{python}
+adata=sc.read_loom("/scicore/home/tschoppp/wang0007/scRNA/pseudotime/cellrank/scrnaSub_nasal.loom")
+
+#remove W chr genes
+wolp=adata.var_names.intersection(wgenes['ensembl_gene_id'])
+print(wolp)
+w_gene_indicator = np.in1d(adata.var_names, wgenes['ensembl_gene_id'])
+adata = adata[:, ~w_gene_indicator]
+
+# add in velocity data
+adata_loom = ldata[:, adata.var_names]
+adata = scv.utils.merge(adata, adata_loom); del ldata
+
+# show the proportion of spliced & unspliced
+adata.obs["seurat_clusters"] = adata.obs["seurat_clusters"].astype('category')
+scv.pl.proportions(adata, groupby="seurat_clusters")
+```
+
+```{python}
+## run scVelo
+scv.pp.filter_and_normalize(adata, min_shared_counts=20, n_top_genes=2000)
+sc.tl.pca(adata)
+sc.pp.neighbors(adata, n_pcs=30, n_neighbors=30)
+scv.pp.moments(adata, n_pcs=30, n_neighbors=30)
+
+scv.tl.recover_dynamics(adata)
+
+scv.tl.velocity(adata, mode='dynamical')
+scv.tl.velocity_graph(adata)
+```
+
+```{python}
+#plot
+scv.pl.velocity_embedding_stream(adata, basis='xtsne_cell_embeddings', color='seurat_clusters',legend_fontsize=8, smooth=.8, min_mass=3, 
+                                 title='', size=20, figsize=(4,4), linewidth=0.4, 
+                                 dpi=120,save="figure1_i")
+
+
+```
+
+## somite
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+tmp.samples="somite"
+
+#save loom file
+my.data = readRDS(my.files[1])
+my.data = readRDS(paste0("~/scRNA/clustering/subset_",tmp.samples,".rds"))
+my.data.loom=as.loom(my.data,filename = paste0("~/scRNA/pseudotime/cellrank/scrnaSub_",tmp.samples,".loom"), 
+                          assay="integrated", verbose = FALSE, overwrite = TRUE)
+detach(my.data);detach(my.data.loom)
+```
+
+```{python}
+adata=sc.read_loom("/scicore/home/tschoppp/wang0007/scRNA/pseudotime/cellrank/scrnaSub_somite.loom")
+
+#remove W chr genes
+wolp=adata.var_names.intersection(wgenes['ensembl_gene_id'])
+print(wolp)
+w_gene_indicator = np.in1d(adata.var_names, wgenes['ensembl_gene_id'])
+adata = adata[:, ~w_gene_indicator]
+
+# add in velocity data
+adata_loom = ldata[:, adata.var_names]
+adata = scv.utils.merge(adata, adata_loom); del ldata
+
+# show the proportion of spliced & unspliced
+adata.obs["seurat_clusters"] = adata.obs["seurat_clusters"].astype('category')
+scv.pl.proportions(adata, groupby="seurat_clusters")
+```
+
+```{python}
+## run scVelo
+scv.pp.filter_and_normalize(adata, min_shared_counts=20, n_top_genes=2000)
+sc.tl.pca(adata)
+sc.pp.neighbors(adata, n_pcs=30, n_neighbors=30)
+scv.pp.moments(adata, n_pcs=30, n_neighbors=30)
+
+scv.tl.recover_dynamics(adata)
+
+scv.tl.velocity(adata, mode='dynamical')
+scv.tl.velocity_graph(adata)
+```
+
+```{python}
+#plot
+scv.pl.velocity_embedding_stream(adata, basis='xtsne_cell_embeddings', color='seurat_clusters',legend_fontsize=8, smooth=.8, min_mass=3, 
+                                 title='', size=20, figsize=(4,4), linewidth=0.4, 
+                                 dpi=120,save="figure1_i")
+
+
+```
+
+## limb
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+tmp.samples="limb"
+
+#save loom file
+my.data = readRDS(my.files[1])
+my.data = readRDS(paste0("~/scRNA/clustering/subset_",tmp.samples,".rds"))
+my.data.loom=as.loom(my.data,filename = paste0("~/scRNA/pseudotime/cellrank/scrnaSub_",tmp.samples,".loom"), 
+                          assay="integrated", verbose = FALSE, overwrite = TRUE)
+detach(my.data);detach(my.data.loom)
+```
+
+```{python}
+adata=sc.read_loom("/scicore/home/tschoppp/wang0007/scRNA/pseudotime/cellrank/scrnaSub_limb.loom")
+
+#remove W chr genes
+wolp=adata.var_names.intersection(wgenes['ensembl_gene_id'])
+print(wolp)
+w_gene_indicator = np.in1d(adata.var_names, wgenes['ensembl_gene_id'])
+adata = adata[:, ~w_gene_indicator]
+
+# add in velocity data
+adata_loom = ldata[:, adata.var_names]
+adata = scv.utils.merge(adata, adata_loom); del ldata
+
+# show the proportion of spliced & unspliced
+adata.obs["seurat_clusters"] = adata.obs["seurat_clusters"].astype('category')
+scv.pl.proportions(adata, groupby="seurat_clusters")
+```
+
+```{python}
+## run scVelo
+scv.pp.filter_and_normalize(adata, min_shared_counts=20, n_top_genes=2000)
+sc.tl.pca(adata)
+sc.pp.neighbors(adata, n_pcs=30, n_neighbors=30)
+scv.pp.moments(adata, n_pcs=30, n_neighbors=30)
+
+scv.tl.recover_dynamics(adata)
+
+scv.tl.velocity(adata, mode='dynamical')
+scv.tl.velocity_graph(adata)
+```
+
+```{python}
+#plot
+scv.pl.velocity_embedding_stream(adata, basis='xtsne_cell_embeddings', color='seurat_clusters',legend_fontsize=8, smooth=.8, min_mass=3, 
+                                 title='', size=20, figsize=(4,4), linewidth=0.4, 
+                                 dpi=120,save="figure1_i")
+
+
+```
+
+```{python}
+
+```
+
+```{python}
+
+```
+
+

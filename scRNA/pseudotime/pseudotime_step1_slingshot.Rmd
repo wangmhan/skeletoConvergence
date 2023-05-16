@@ -1,0 +1,67 @@
+---
+title: "pseudotime_step1"
+output: 
+  html_document:
+    df_print: paged
+  html_notebook:
+editor_options:
+  chunk_output_type: inline
+--- 
+
+```{r setup, message=FALSE, warning=FALSE, echo=FALSE}
+library(slingshot); library(Seurat)
+library(ggplot2); library(scran)
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+cls.start=list()
+cls.start[["limb"]]=c("sub_1");cls.start[["nasal"]]=c("sub_4");cls.start[["somite"]]=c("sub_3")
+cls.end=list()
+cls.end[["limb"]]=c("sub_5");cls.end[["nasal"]]=c("sub_1","sub_3","sub_5","sub_6");cls.end[["somite"]]=c("sub_2")
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+for(i in 1:length(cls.start)){
+  # read in scRNA-seq data
+  tmp.samples=names(cls.start)[i]
+  my.data = readRDS(paste0("~/scRNA/clustering/subset_",tmp.samples,".rds"))
+  meta = readRDS(paste0("~/scRNA/clustering/meta_",tmp.samples,".rds"))
+  my.data = AddMetaData(my.data,metadata=meta[rownames(my.data@meta.data),])
+  
+  # preprocess
+  my.data$fine=factor(my.data$fine)
+  use_cluster <- droplevels(my.data$fine); 
+  use_rDimension <- Embeddings(my.data,reduction = "xtsne")
+  
+  # run slingshot
+  get_slshot1 <- slingshot(data = use_rDimension,
+                           clusterLabels = use_cluster,
+                           start.clus = cls.start[[tmp.samples]],
+                           end.clus = cls.end[[tmp.samples]],
+                           extend='n',
+                           maxit=1000,shrink.method="cosine") 
+  print(get_slshot1@lineages)
+  
+  # plot
+  plot(reducedDims(get_slshot1), col="grey", pch=16)
+  lines(get_slshot1, lwd=2,col="black")
+  
+  # save
+  get_slshot=list()
+  get_slshot[["xtsne"]]=get_slshot1
+  saveRDS(get_slshot,paste0("~/scRNA/pseudotime/ptime_",tmp.samples,"_slingshot.rds"))
+}
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+
+```
+
+## log
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+sessionInfo()
+```
