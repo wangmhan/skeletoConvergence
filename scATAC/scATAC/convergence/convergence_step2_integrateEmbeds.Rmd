@@ -1,0 +1,176 @@
+---
+title: "batchCorrected_embeds"
+output: 
+  html_document:
+    df_print: paged
+  html_notebook:
+editor_options:
+  chunk_output_type: inline
+---
+
+```{r setup, message=FALSE, warning=FALSE, echo=FALSE}
+library(Signac); library(Seurat)
+library(GenomeInfoDb); library(ensembldb)
+library(BSgenome.Ggallus.ensembl.galGal6)
+library(scran)
+
+set.seed(1234)
+```
+
+## keep only HVPs & DAPs
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+my.samples=readRDS("~/scATAC/preprocessed_scatac_6samples_onlyM2P.rds")
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+filterDaps=function(daps=daps.limb,logfc.thres=0.5,padj.thres=0.05,pct.thres=0.25,n=100,ctype=c("Mesenchyme","skeletogenicCells")){
+  daps=daps[daps$avg_log2FC > logfc.thres & daps$p_val_adj < padj.thres,]
+  daps$maxpct=apply(daps[,c("pct.1","pct.2")],1,max)
+  daps=daps[daps$maxpct > pct.thres,]
+  daps=daps[order(daps$cluster,-daps$avg_log2FC),]
+  daps.keep=NULL
+  for(i in 1:length(ctype)){
+    daps.tmp=daps[daps$cluster==ctype[i],]
+    if(nrow(daps.tmp) < n){
+      daps.keep=rbind(daps.keep,daps.tmp)
+    }else{
+      daps.keep=rbind(daps.keep,daps.tmp[1:n,])
+    }
+  }
+  return(daps.keep)
+}
+
+#read in top 100/1000 DAPs
+n=1000
+daps.limb=read.table(paste0("/scicore/home/tschoppp/wang0007/scATAC/diffAnalysis/","limb_daps_broad.txt"),sep = "\t",row.names = 1,header = T,stringsAsFactors = F)
+tops.limb=filterDaps(daps=daps.limb,
+                     logfc.thres=0.5,padj.thres=0.05,pct.thres=0.1,
+                     n=n,ctype=unique(daps.limb$cluster)); dim(tops.limb)
+daps.somite=read.table(paste0("/scicore/home/tschoppp/wang0007/scATAC/diffAnalysis/","somite_daps_broad.txt"),sep = "\t",row.names = 1,header = T,stringsAsFactors = F)
+tops.somite=filterDaps(daps=daps.somite,
+                     logfc.thres=0.5,padj.thres=0.05,pct.thres=0.1,
+                     n=n,ctype=unique(daps.somite$cluster)); dim(tops.somite)
+daps.nasal=read.table(paste0("/scicore/home/tschoppp/wang0007/scATAC/diffAnalysis/","nasal_daps_broad.txt"),sep = "\t",row.names = 1,header = T,stringsAsFactors = F)
+tops.nasal=filterDaps(daps=daps.nasal,
+                     logfc.thres=0.5,padj.thres=0.05,pct.thres=0.1,
+                     n=n,ctype=unique(daps.nasal$cluster)); dim(tops.nasal)
+tops.all=c(tops.limb$gene,tops.nasal$gene,tops.somite$gene)
+tops.all=tops.all[!duplicated(tops.all)];length(tops.all)
+
+#combind HVP & DAPs
+hvgsum1=read.table("~/scATAC/integration/preprocessed_scranHVPs.txt")
+hvgsum1=hvgsum1[hvgsum1$Freq>=2,];length(hvgsum1$hvgs)
+hvgsum2=read.table("~/scATAC/integration/preprocessed_seuratHVPs.txt")
+hvgsum2=hvgsum2[hvgsum2$Freq>=2,];length(hvgsum2$hvgs)
+length(hvgsum1$hvgs[hvgsum1$hvgs %in% hvgsum2$hvgs.seurat])
+
+geneset=c(tops.all,hvgsum1$hvgs,hvgsum2$hvgs.seurat)
+geneset=geneset[!duplicated(geneset)];length(geneset)
+geneset=geneset[!grepl("^W-",geneset)];length(geneset)
+write.table(geneset,"~/scATAC/integration/preprocessed_HvpDaps.txt",quote=F)
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+#keep only HVPs & DAPs in my.samples
+for (i in 1:length(my.samples)) {
+  print(paste0("sample: ",names(my.samples)[i]))
+  my.samples[[i]] <- my.samples[[i]][geneset,]
+  #cannot use size_factor, will cause crash...
+  #normed=log1p(sweep(GetAssayData(my.samples[[i]],slot = "counts"),2,my.samples[[i]]@meta.data$size_factor,"/"))
+  #my.samples[[i]]=SetAssayData(my.samples[[i]],slot="data",new.data=normed)
+  
+  #should run normalize & dim reduction, as no lsi any more (delete bins assay)
+  my.samples[[i]] <- RunTFIDF(my.samples[[i]])
+  my.samples[[i]] <- FindTopFeatures(my.samples[[i]], min.cutoff = 'q99.9'); top=VariableFeatures(my.samples[[i]])
+  #as not all bins are informatic, so restricted to top 50%
+  my.samples[[i]] <- FindTopFeatures(my.samples[[i]], min.cutoff = 'q50'); length(VariableFeatures(my.samples[[i]]))
+  #remove the ones could be repetitive elements
+  VariableFeatures(my.samples[[i]])=VariableFeatures(my.samples[[i]])[!(VariableFeatures(my.samples[[i]]) %in% top)]
+  my.samples[[i]] <- RunSVD(my.samples[[i]])
+  #my.samples[[i]] <- RunPCA(my.samples[[i]])
+  
+}
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+saveRDS(my.samples,"~/scATAC/preprocessed_scatac_6samples_onlyM2P_HvpDaps.rds")
+```
+
+## combined
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+#show combined first
+my.samples=readRDS("~/scATAC/preprocessed_scatac_6samples_onlyM2P_HvpDaps.rds")
+combined <- merge(
+  x = my.samples$L21,
+  y = list(my.samples$L24,my.samples$N18,my.samples$N15,my.samples$S12,my.samples$S15)
+)
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+hvgsum1=read.table("~/scATAC/integration/preprocessed_scranHVPs.txt")
+hvgsum1=hvgsum1[hvgsum1$Freq>=2,]
+
+combined <- RunTFIDF(combined)
+VariableFeatures(combined)=hvgsum1$hvgs
+combined <- RunSVD(combined)
+combined <- RunUMAP(combined, reduction = "lsi", dims = 2:30)
+
+saveRDS(combined,"~/scATAC/integration/convergence_integrated_signac_onlyM2P_HvpDaps_combined.rds")
+```
+
+## batch correction
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+my.samples=readRDS("~/scATAC/preprocessed_scatac_6samples_onlyM2P_HvpDaps.rds")
+combined=readRDS("~/scATAC/integration/convergence_integrated_signac_onlyM2P_HvpDaps_combined.rds") 
+
+hvgsum1=read.table("~/scATAC/integration/preprocessed_scranHVPs.txt")
+hvgsum1=hvgsum1[hvgsum1$Freq>=2,];length(hvgsum1$hvgs)
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+# https://satijalab.org/signac/articles/integrate_atac.html
+my.anchors <- FindIntegrationAnchors(object.list = my.samples, 
+                                     reduction = "rlsi", #"cca
+                                     dims = 2:30, 
+                                     k.filter = NA, #newly added
+                                     anchor.features = hvgsum1$hvgs)
+
+# integrate LSI embeddings
+converged <- IntegrateEmbeddings(
+  anchorset = my.anchors,
+  reductions = combined[["lsi"]],
+  new.reduction.name = "converged_lsi",
+  dims.to.integrate = 2:30 #newly changed from: 1:30
+)
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.width=12,fig.height=8}
+#check the result
+VariableFeatures(converged)=hvgsum1$hvgs
+#converged=RunSVD(converged)
+converged <- RunUMAP(converged, reduction = "converged_lsi", dims = 2:30)
+p1=DimPlot(converged,group.by = "origin")
+p2=DimPlot(converged,group.by = "dataset")
+p1+p2
+DimPlot(converged,group.by = "annotation_broad",label = T)
+DimPlot(converged,group.by = "annotation_fine",label = T)
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+
+```
+
+## log
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+sessionInfo()
+```
