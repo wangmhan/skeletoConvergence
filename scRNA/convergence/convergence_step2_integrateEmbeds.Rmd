@@ -1,0 +1,100 @@
+---
+title: "batchCorrected_embeds"
+output: 
+  html_document:
+    df_print: paged
+  html_notebook:
+editor_options:
+  chunk_output_type: inline
+---
+
+```{r setup, message=FALSE, warning=FALSE, echo=FALSE}
+library(Seurat)
+library(scran)
+
+set.seed(1234)
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+my.samples=readRDS("/scicore/home/tschoppp/wang0007/scRNA/integration/preprocessed_9samples.rds")
+my.meta=readRDS("~/scRNA/clustering/meta_all.rds")
+my.w=read.table("~/scRNA/ensembl97_wgenes.txt")
+
+#set HVGs
+hvgs.scran=read.table(paste0("/scicore/home/tschoppp/wang0007/scRNA/integration/preprocessed_scranHVGs.txt"),
+                      sep="\t",row.names=1,header=TRUE)
+hvgs.scran=hvgs.scran[hvgs.scran$Freq>=2,];dim(hvgs.scran)
+```
+
+## combined
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+merged_object <- merge(x = my.samples$L21,
+  y = list(my.samples$L24,my.samples$L27,my.samples$N15,my.samples$N18,my.samples$N22,my.samples$S12,my.samples$S15,my.samples$S20))
+
+meta.all=rbind(my.meta$limb,my.meta$nasal,my.meta$somite)
+merged_object=AddMetaData(merged_object,meta.all[,c("broad","fine","annotation_broad","annotation_fine")])
+```
+
+## batch correction
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+for (i in 1:length(my.samples)) {
+  print(paste0("sample: ",names(my.samples)[i]))
+  #my.samples[[i]] <- my.samples[[i]][geneset,]
+  my.samples[[i]] <- NormalizeData(my.samples[[i]])
+  my.samples[[i]] <- FindVariableFeatures(my.samples[[i]])
+  #remove the ones could be repetitive elements
+  VariableFeatures(my.samples[[i]])=VariableFeatures(my.samples[[i]])[!(VariableFeatures(my.samples[[i]]) %in% my.w$ensembl_gene_id)]
+  my.samples[[i]] <- RunPCA(my.samples[[i]],verbose = F)
+}
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+my.anchors <- FindIntegrationAnchors(object.list = my.samples, 
+                                     reduction = "rpca", #"cca
+                                     dims = 1:30, 
+                                     anchor.features = hvgs.scran$hvgs)
+
+# integrate LSI embeddings
+converged <- IntegrateEmbeddings(
+  anchorset = my.anchors,
+  reductions = merged_object[["pca"]],
+  new.reduction.name = "converged_pca",
+  dims.to.integrate = 1:30 
+)
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.width=12,fig.height=8}
+#check the result
+VariableFeatures(converged)=hvgs.scran$hvgs
+#converged=RunPCA(converged)
+converged <- RunUMAP(converged, reduction = "converged_pca", dims = 1:30)
+p1=DimPlot(converged,group.by = "origin")
+p2=DimPlot(converged,group.by = "orig.ident")
+p1+p2
+
+converged=AddMetaData(converged,meta.all[,c("broad","fine","annotation_broad","annotation_fine")])
+DimPlot(converged,group.by = "annotation_broad",label = T)
+DimPlot(converged,group.by = "annotation_fine",label = T)
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+saveRDS(my.anchors,"~/scMulti/convergence/scRNA_correctedEmbeds_anchors.rds")
+saveRDS(converged,"~/scMulti/convergence/scRNA_correctedEmbeds.rds")
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+
+```
+
+## log
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+sessionInfo()
+```

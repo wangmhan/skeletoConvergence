@@ -1,0 +1,180 @@
+---
+title: "convergence_preprocess"
+output: 
+  html_document:
+    df_print: paged
+  html_notebook:
+editor_options:
+  chunk_output_type: inline
+--- 
+
+We joint all the 9 samples together. Also did stricted QC to keep only good quality and well-annotated cells for further integration.
+
+```{r setup, message=FALSE, warning=FALSE, echo=FALSE}
+library(Seurat);library(scran)
+library(scater);library(pheatmap)
+
+```
+
+## combine 9 samples
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+my.samplenames = c("L21", "L24", "L27", "N15", "N18", "N22", "S12", "S15", "S20")
+rna_path <- "/scicore/home/tschoppp/GROUP/lab/Chris.shared/for.Menghan/"
+my.files=paste0(rna_path,c("forelimb_seurat_290420.rds","frontonasal_seurat_290420.rds","somites_seurat_290420.rds"))
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+#rename clusters by cell type annotation
+limb=c("Hoxa9Mschm","undiffMschm","undiffMschm","skeletalCellsORECM",
+       "earlyChondrocytes","undiffMschm","cyclingCells","deadcell","activeCells",
+       "connecTissueORECM","skin","cyclingCells","muscles","vessels","leukocytes","blood")
+names(limb)=c(1:length(limb))
+fnp=c('1'='CMchondrocyte','2'='CMchondrocyte', '3'='cyclingCells','4'='cyclingCells', 
+      '5'='CMskeletogenic', '6'='CMskeletogenic', '7'='forebrainORplacodes','8'='deadcell',
+      '9'='undifferentiatedActiveCells', '10'='skin','11'='eyeORconnectiveTissue',
+      '12'='neurons','13'='blood', '14'='vessels')
+somite=c("neuralTube","earlyChondrocytes","somites","undetermined",
+         "neuralTube","dermomyotomeORcyclingcells","neuralCrest",
+         "LPM","somites","skin","deadcell","vessels","neurons",
+         "intermediateMesoderm","blood","notochord")
+names(somite)=c(1:length(somite))
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+#split into 3 origin * 3 stage = 9 samples
+my.tmp = list()
+for (i in 1:length(my.files)) {
+  my.tmp[[i]] = readRDS(my.files[i])
+  Idents(my.tmp[[i]]) =my.tmp[[i]]@meta.data$seurat_clusters
+  #run umap
+  my.tmp[[i]]=RunUMAP(my.tmp[[i]],dims=1:30)
+  my.tmp[[i]]@meta.data$umap_1=Embeddings(my.tmp[[i]],reduction="umap")[,"UMAP_1"]
+  my.tmp[[i]]@meta.data$umap_2=Embeddings(my.tmp[[i]],reduction="umap")[,"UMAP_2"]
+  if(i==1){
+    my.tmp[[i]]=RenameIdents(my.tmp[[i]],limb)
+    my.tmp[[i]]@meta.data$celltype_unique=paste0("L_",Idents(my.tmp[[i]]))
+    my.tmp[[i]]@meta.data$origin="limb"
+  }else if(i==2){
+    my.tmp[[i]]=RenameIdents(my.tmp[[i]],fnp)
+    my.tmp[[i]]@meta.data$celltype_unique=paste0("N_",Idents(my.tmp[[i]]))
+    my.tmp[[i]]@meta.data$origin="nasal"
+  }else if(i==3){
+    my.tmp[[i]]=RenameIdents(my.tmp[[i]],somite)
+    my.tmp[[i]]@meta.data$celltype_unique=paste0("S_",Idents(my.tmp[[i]]))
+    my.tmp[[i]]@meta.data$origin="somite"
+  }
+  my.tmp[[i]]@meta.data$celltype=Idents(my.tmp[[i]])
+  my.tmp[[i]] = SplitObject(my.tmp[[i]], split.by = "orig.ident" )
+}
+my.samples = c(unlist(my.tmp)); rm(my.tmp)
+```
+
+## extract W genes
+
+As W-linked genes can cause bias, we excluded them.
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+library(biomaRt)
+ensembl=useMart("ENSEMBL_MART_ENSEMBL",host="www.ensembl.org")
+dataset_n <- "ggallus_gene_ensembl";
+sp_ensembl=useEnsembl(biomart = "ensembl",dataset=dataset_n,version = "97")
+
+gene_inf_n <- c("ensembl_gene_id","external_gene_name","chromosome_name",
+                "entrezgene_id","go_id","name_1006")
+gene_inf <- getBM(attributes=gene_inf_n, mart=sp_ensembl); head(gene_inf)
+w.genes = gene_inf[!duplicated(gene_inf$ensembl_gene_id) & gene_inf$chromosome_name %in% c("W"),]; dim(w.genes)
+mt.genes = gene_inf[!duplicated(gene_inf$ensembl_gene_id) & gene_inf$chromosome_name %in% c("MT"),]; dim(mt.genes)
+
+```
+
+## QC & normalize with scran
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+library(DoubletFinder)
+
+hvgs=NULL
+sweep.stats.total=list()
+#make separate Seurat object
+for (i in 1:length(my.samples)) {
+  DefaultAssay(my.samples[[i]])="RNA"
+  
+  #scran: get sizeFactors
+  sce=as.SingleCellExperiment(my.samples[[i]],assay="RNA")
+  myclusters=my.samples[[i]]@meta.data$seurat_clusters
+  sce = computeSumFactors(sce, clusters=myclusters, min.mean=0.1)
+  my.samples[[i]]=AddMetaData(my.samples[[i]],metadata = sizeFactors(sce),col.name = "size_factor")
+  
+  #get hvgs
+  sce <- logNormCounts(sce)
+  dec <- modelGeneVar(sce, assay.type = "logcounts")
+  hvgs=c(hvgs,getTopHVGs(dec, n=2000))
+  
+  #filter genes
+  tmp=GetAssayData(my.samples[[i]],slot = "counts")
+  genes=rownames(tmp)
+  rmgenes=rowSums(tmp>0)[rowSums(tmp>0) <= (0.003*ncol(tmp))]
+  rmgenes=c(rmgenes,names(rowSums(tmp)[rowSums(tmp)<= (3*0.003*ncol(tmp))]))
+  
+  #remove W chromosome genes
+  rmgenes=c(rmgenes,w.genes)
+  rmgenes=rmgenes[!duplicated(rmgenes)]
+  
+  #remove deadcell cluster
+  my.samples[[i]]=subset(my.samples[[i]],idents='deadcell',invert=TRUE)
+  
+  #remove doublets
+  tmp <- my.samples[[i]]
+  tmp <- NormalizeData(tmp)
+  tmp = subset(tmp,features=genes[!(genes %in% rmgenes)])
+  tmp <- FindVariableFeatures(tmp, selection.method = "vst", nfeatures = 2000)
+  tmp <- ScaleData(tmp)
+  tmp <- RunPCA(tmp)
+  tmp <- RunUMAP(tmp, dims = 1:30)
+  sweep.res.list <- paramSweep_v3(tmp, PCs = 1:30, sct = FALSE)
+  sweep.stats <- summarizeSweep(sweep.res.list, GT = FALSE)
+  bcmvn <- find.pK(sweep.stats) #based on max BCmetric
+  sweep.stats.total[[i]] =sweep.stats
+  
+  #get the optimized pK
+  pk.used=as.numeric(as.character(bcmvn[(bcmvn$BCmetric)==max(bcmvn$BCmetric),"pK"]));print(pk.used)
+  homotypic.prop <- modelHomotypic(tmp@meta.data$celltype)           ## ex: annotations <- tmp@meta.data$ClusteringResults
+  nExp_poi <- round(0.075*nrow(tmp@meta.data))  ## Assuming 7.5% doublet formation rate - tailor for your dataset
+  nExp_poi.adj <- round(nExp_poi*(1-homotypic.prop))
+  tmp <- doubletFinder_v3(tmp, PCs = 1:30, pN = 0.25, pK = pk.used, nExp = nExp_poi, reuse.pANN = FALSE, sct = FALSE)
+  pann=colnames(tmp@meta.data)[grep("pANN_",colnames(tmp@meta.data))]
+  tmp <- doubletFinder_v3(tmp, PCs = 1:30, pN = 0.25, pK = pk.used, nExp = nExp_poi.adj, reuse.pANN = pann, sct = FALSE)
+  dbname = colnames(tmp@meta.data)[grep("DF.classifications_",colnames(tmp@meta.data))][2]
+  my.samples[[i]]=subset(my.samples[[i]],
+                         cells=rownames(tmp@meta.data[tmp@meta.data[,dbname]!="Doublet",]))
+  
+  #plot
+  p1=FeatureScatter(my.samples[[i]], feature1 = "nCount_RNA", feature2 = "nFeature_RNA",group.by = "orig.ident")
+  p2=FeatureScatter(my.samples[[i]], feature1 = "nCount_RNA", feature2 = "percent.mt",group.by = "orig.ident")
+  print(p1+p2)
+  
+  rm(tmp)
+}
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+#rank hvgs by times of appearance, keep the top 2000
+hvgsum=as.data.frame(table(hvgs));dim(hvgsum)
+hvgsum=hvgsum[order(-hvgsum$Freq),]
+#remove W chromosme genes
+hvgsum=hvgsum[!(hvgsum$hvgs %in% w.genes$ensembl_gene_id),]
+
+write.table(hvgsum,"/scicore/home/tschoppp/wang0007/scRNA/preprocessed_scranHVGs.txt",sep="\t",quote = F)
+```
+
+## log
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+sessionInfo()
+```

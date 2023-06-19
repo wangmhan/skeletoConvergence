@@ -1,0 +1,75 @@
+---
+title: "integrationAnchors_Seurat"
+output: 
+  html_document:
+    df_print: paged
+  html_notebook:
+editor_options:
+  chunk_output_type: inline
+---
+
+```{r setup, message=FALSE, warning=FALSE, echo=FALSE}
+library(Seurat)
+library(scran)
+
+set.seed(1234)
+```
+
+## read in combined dataset and HVGs
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+my.samples=readRDS("/scicore/home/tschoppp/wang0007/scRNA/preprocessed_9samples.rds")
+
+#set HVGs
+hvgs.scran=read.table(paste0("/scicore/home/tschoppp/wang0007/scRNA/preprocessed_scranHVGs.txt"),
+                      sep="\t",row.names=1,header=TRUE)
+hvgscran=as.character(hvgs.scran[hvgs.scran$Freq>=2,"hvgs"])
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+#normed data:log(raw count/size_factor+1)
+for (i in 1:length(my.samples)) {
+  DefaultAssay(my.samples[[i]])="RNA"
+  normed=log1p(sweep(GetAssayData(my.samples[[i]],slot = "counts"),2,my.samples[[i]]@meta.data$size_factor,"/"))
+  my.samples[[i]]=SetAssayData(my.samples[[i]],slot="data",new.data=normed)
+}
+```
+
+## integrate data
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+my.anchors <- FindIntegrationAnchors(object.list = my.samples, dims = 1:30,
+                                     anchor.features = hvgscran)
+my.integrated <- IntegrateData(anchorset = my.anchors, dims = 1:30)
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+my.integrated <- ScaleData(my.integrated, verbose = FALSE)
+my.integrated <- RunPCA(my.integrated, npcs = 30, verbose = FALSE)
+my.integrated <- RunUMAP(my.integrated, reduction = "pca", dims = 1:30)
+
+saveRDS(my.integrated,"~/scRNA/integrate_seuratHVGscran.rds")
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+#get all genes corrected values
+my.integrated <- IntegrateData(anchorset = my.anchors, dims = 1:30,
+                               features.to.integrate = rownames(GetAssayData(my.samples$L21)))
+saveRDS(my.integrated,"~/scRNA/integrate_seuratHVGscran_wholeGenesets.rds")
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+
+```
+
+## log
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+sessionInfo()
+```
