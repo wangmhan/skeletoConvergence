@@ -1,0 +1,529 @@
+---
+title: "scRNA_clustering"
+output: 
+  html_document:
+    df_print: paged
+  html_notebook:
+editor_options:
+  chunk_output_type: inline
+---
+
+adapted from Chris's script
+
+```{r setup, message=FALSE, warning=FALSE, echo=FALSE}
+library(Seurat);library(ggplot2)
+library(dplyr);library(stats)
+source("~/software/FIt-SNE/fast_tsne.R")
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+my.chr = readRDS(paste0(my.path,"../seuratv3/data/ENSxCrhom.rds"))
+all.genes <- rownames(my.samples[[1]]@assays$RNA@counts)
+# Genes in our samples, with their corresponding chromosome
+my.chr = my.chr[all.genes,]
+# The mitochondrial genes
+mt=my.chr[which(my.chr[,2] == "MT"),1]
+# The W genes
+my.W = my.chr[which(my.chr[,2] == "W"),1]
+# Load pairs of genes that are correlated within the Cell Cycle. Orthologs from the Scialdone data
+load(paste0(my.path,"../seuratv3/data/chicken_cycle_markers.Rda"))
+# We only want the S and the G2M phases
+gg.pairsm = gg.pairs[-1]
+
+```
+
+## nasal
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+
+my.path="/scicore/home/tschoppp/feregrin/projects/sc9x_extended_Sept19/data/"
+load(paste0(my.path,"N15_filteredUMIs_030919.RDa"))
+load(paste0(my.path,"N18_filteredUMIs_030919.RDa"))
+load(paste0(my.path,"N22_filteredUMIs_030919.RDa"))
+# here we need to load all the datasets that will be part of our analysis
+my.samples = list()
+my.samples[[1]] = N15f
+my.samples[[2]] = N18f
+my.samples[[3]] = N22f
+#The sample name, will  be used in plots and files
+my.samplename = "frontonasal"
+# We can supply individual sample names if we want
+my.samplenames = c("N15", "N18", "N22")
+rm(list = c("N15f", "N18f", "N22f"))
+
+###################
+## build Seurat object
+for (i in 1:length(my.samples)) {
+  my.samples[[i]] = setNames(my.samples[[i]] ,paste0(my.samplenames[i],"_",colnames(my.samples[[i]])))
+  my.samples[[i]] = CreateSeuratObject(my.samples[[i]], project = my.samplenames[i])
+}
+
+###################
+## We collect data to calculate percentage of MT, cell cycle scores and the sex of the cells
+library(scran)
+set.seed(42)
+for (i in 1:length(my.samples)) {
+  
+  my.se = my.samples[[i]]
+  
+  #The mt genes
+  is.mt = (rownames(my.se)%in%mt)
+  # Percentage of reads belonging to Mt genes
+  my.se[["percent.mt"]] =  PercentageFeatureSet(my.se, features = mt)
+  # Normalize the data. Lognorm
+  my.se = NormalizeData(my.se, normalization.method = "LogNormalize", scale.factor = 10000, verbose = F)
+  # Scale the data
+  my.se = ScaleData(my.se, features = all.genes, verbose = F, do.scale = F)
+  
+  ## Cell Cycle
+  #Assign scores using the scaled data
+  assign.se = cyclone(my.se@assays$RNA@scale.data, gg.pairsm, gene.names=rownames(my.se))
+  #The difference
+  rownames(assign.se$scores) = colnames(my.se)
+  assign.se$scores$CC.Difference = (assign.se$scores$S - assign.se$scores$G2M)
+  #Add it to the object
+  my.se = AddMetaData(my.se, metadata = assign.se$scores)
+  ##
+  
+  # Transform the data, removing sources of variation
+  my.se = SCTransform(my.se, vars.to.regress = c("percent.mt", "nCount_RNA", "CC.Difference"),
+                      verbose = FALSE, return.only.var.genes = F, variable.features.n = NULL)
+  
+  my.samples[[i]] = my.se
+}
+detach("package:scran", unload=TRUE)
+
+###################
+## integrate 3 stages
+if (length(my.samples) > 1) {
+  
+  my.multi = T
+  
+  # Check for highly variable genes, per sample
+  my.HVF = c()
+  
+  for (i in 1:length(my.samples)) {
+    my.var = HVFInfo(my.samples[[i]], assay = "SCT")
+    # only those with a variability (whatever measure) > median + MAD
+    my.var = rownames(my.var)[which(my.var[,3] > ( median(my.var[,3]) + mad(my.var[,3]) ) )]
+    my.HVF = c(my.HVF, my.var) 
+  }
+  # all variable genes in all samples
+  my.HVF = unique(my.HVF)
+  
+  # shared genes across samples
+  my.features = intersect(rownames(my.samples[[1]]@assays$SCT@data), rownames(my.samples[[2]]@assays$SCT@data))
+  for ( i in 2:length(my.samples) ){ my.features = intersect(my.features, rownames(my.samples[[i]]@assays$SCT@data)) }
+  
+  # Which of the highly variable genes are in the shared genes?
+  my.HVF = intersect(my.HVF, my.features)
+  
+  # To integrate the samples into one space
+  my.samples = PrepSCTIntegration(object.list = my.samples, anchor.features = my.HVF, verbose = FALSE)
+  
+  # Find the anchors, from the variable genes that are shared
+  my.anchors = FindIntegrationAnchors(my.samples, normalization.method = "SCT", anchor.features = my.HVF, verbose = FALSE)
+  
+  # Integrate the data
+  my.se = IntegrateData(anchorset = my.anchors, normalization.method = "SCT", verbose = FALSE)
+  
+  # Scale the original data as well, to show differences
+  my.se = ScaleData(my.se, features = all.genes, assay = "RNA", vars.to.regress = c("percent.mt", "nCount_RNA"), verbose = F)
+  
+} else {my.se = my.samples[[1]]}
+# How does the data look like?
+VlnPlot(my.se, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3, group.by = "orig.ident")
+
+###################
+## run PCA & xtSNE
+
+my.se=RunPCA(my.se, assay = "RNA", features = all.genes, npcs = 2, verbose = F)
+PCAPlot(my.se, group.by="orig.ident")
+# get rid of the W genes
+my.features = rownames(my.se@assays$integrated@scale.data)
+my.features = my.features[-which(my.features %in% my.W)]
+# Run the actual PCA
+my.se=RunPCA(my.se, assay = "integrated", verbose = F, features = my.features)
+PCAPlot(my.se, group.by="orig.ident")
+# Which dimensions will we choose?
+hist(my.se@reductions$pca@stdev^2, breaks = 500)
+my.dimensions=1:19
+
+# First, exaggerated
+my.tsne = fftRtsne(my.se@reductions$pca@cell.embeddings[,my.dimensions],
+                   max_iter = 1000,
+                   learning_rate =  round(dim(my.se)[2]/12),
+                   initialization =(my.se@reductions$pca@cell.embeddings[,1:2]/my.se@reductions$pca@stdev[1])*0.0001,
+                   perplexity_list = c(30, round(dim(my.se)[2]/100)),
+                   late_exag_coeff = 4,
+                   start_late_exag_iter = 250,
+                   fast_tsne_path="~/software/FIt-SNE/bin/fast_tsne")
+
+rownames(my.tsne) = colnames(my.se)
+
+# Save it as xtsne in the seurat object
+my.se[["xtsne"]] = CreateDimReducObject(embeddings = my.tsne, key = "xtsne_", assay = DefaultAssay(my.se), global = T)
+my.se = AddMetaData(my.se, metadata = data.frame(Embeddings(my.se, "xtsne")))
+
+# Then without exaggeration
+my.tsne = fftRtsne(my.se@reductions$pca@cell.embeddings[,my.dimensions],
+                   max_iter = 1000,
+                   learning_rate =  round(dim(my.se)[2]/12),
+                   initialization =(my.se@reductions$pca@cell.embeddings[,1:2]/my.se@reductions$pca@stdev[1])*0.0001,
+                   perplexity_list = c(30, round(dim(my.se)[2]/100)),
+                   fast_tsne_path="~/software/FIt-SNE/bin/fast_tsne")
+
+rownames(my.tsne) = colnames(my.se)
+my.se[["tsne"]] = CreateDimReducObject(embeddings = my.tsne, key = "tsne_", assay = DefaultAssay(my.se), global = T)
+my.se = AddMetaData(my.se, metadata = data.frame(Embeddings(my.se, "tsne")))
+
+###################
+## Find first the nearest neighbors
+my.se = FindNeighbors(object = my.se, dims=my.dimensions, verbose = F)
+
+my.se = FindClusters(object = my.se, resolution = 0.8, verbose = F, random.seed = 42)
+
+###################
+## save
+saveRDS(my.se, paste0("./robjects/",my.samplename,"_seurat_",format(Sys.Date(), "%d%m%y"),".rds"))
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+
+```
+
+## somite
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+my.path="/scicore/home/tschoppp/feregrin/projects/sc9x_extended_Sept19/data/"
+load(paste0(my.path,"S12_filteredUMIs_030919.RDa"))
+load(paste0(my.path,"S15_filteredUMIs_030919.RDa"))
+load(paste0(my.path,"S20_filteredUMIs_030919.RDa"))
+# here we need to load all the datasets that will be part of our analysis
+my.samples = list()
+my.samples[[1]] = S12f
+my.samples[[2]] = S15f
+my.samples[[3]] = S20f
+#The sample name, will  be used in plots and files
+my.samplename = "somites"
+# We can supply individual sample names if we want
+my.samplenames = c("S12", "S15", "S20")
+rm(list = c("S12f", "S15f", "S20f"))
+
+###################
+## build Seurat object
+for (i in 1:length(my.samples)) {
+  my.samples[[i]] = setNames(my.samples[[i]] ,paste0(my.samplenames[i],"_",colnames(my.samples[[i]])))
+  my.samples[[i]] = CreateSeuratObject(my.samples[[i]], project = my.samplenames[i])
+}
+
+###################
+## We collect data to calculate percentage of MT, cell cycle scores and the sex of the cells
+library(scran)
+set.seed(42)
+for (i in 1:length(my.samples)) {
+  
+  my.se = my.samples[[i]]
+  
+  #The mt genes
+  is.mt = (rownames(my.se)%in%mt)
+  # Percentage of reads belonging to Mt genes
+  my.se[["percent.mt"]] =  PercentageFeatureSet(my.se, features = mt)
+  # Normalize the data. Lognorm
+  my.se = NormalizeData(my.se, normalization.method = "LogNormalize", scale.factor = 10000, verbose = F)
+  # Scale the data
+  my.se = ScaleData(my.se, features = all.genes, verbose = F, do.scale = F)
+  
+  ## Cell Cycle
+  #Assign scores using the scaled data
+  assign.se = cyclone(my.se@assays$RNA@scale.data, gg.pairsm, gene.names=rownames(my.se))
+  #The difference
+  rownames(assign.se$scores) = colnames(my.se)
+  assign.se$scores$CC.Difference = (assign.se$scores$S - assign.se$scores$G2M)
+  #Add it to the object
+  my.se = AddMetaData(my.se, metadata = assign.se$scores)
+  ##
+  
+  # Transform the data, removing sources of variation
+  my.se = SCTransform(my.se, vars.to.regress = c("percent.mt", "nCount_RNA", "CC.Difference"),
+                      verbose = FALSE, return.only.var.genes = F, variable.features.n = NULL)
+  
+  my.samples[[i]] = my.se
+}
+detach("package:scran", unload=TRUE)
+
+###################
+## integrate 3 stages
+if (length(my.samples) > 1) {
+  
+  my.multi = T
+  
+  # Check for highly variable genes, per sample
+  my.HVF = c()
+  
+  for (i in 1:length(my.samples)) {
+    my.var = HVFInfo(my.samples[[i]], assay = "SCT")
+    # only those with a variability (whatever measure) > median + MAD
+    my.var = rownames(my.var)[which(my.var[,3] > ( median(my.var[,3]) + mad(my.var[,3]) ) )]
+    my.HVF = c(my.HVF, my.var) 
+  }
+  # all variable genes in all samples
+  my.HVF = unique(my.HVF)
+  
+  # shared genes across samples
+  my.features = intersect(rownames(my.samples[[1]]@assays$SCT@data), rownames(my.samples[[2]]@assays$SCT@data))
+  for ( i in 2:length(my.samples) ){ my.features = intersect(my.features, rownames(my.samples[[i]]@assays$SCT@data)) }
+  
+  # Which of the highly variable genes are in the shared genes?
+  my.HVF = intersect(my.HVF, my.features)
+  
+  # To integrate the samples into one space
+  my.samples = PrepSCTIntegration(object.list = my.samples, anchor.features = my.HVF, verbose = FALSE)
+  
+  # Find the anchors, from the variable genes that are shared
+  my.anchors = FindIntegrationAnchors(my.samples, normalization.method = "SCT", anchor.features = my.HVF, verbose = FALSE)
+  
+  # Integrate the data
+  my.se = IntegrateData(anchorset = my.anchors, normalization.method = "SCT", verbose = FALSE)
+  
+  # Scale the original data as well, to show differences
+  my.se = ScaleData(my.se, features = all.genes, assay = "RNA", vars.to.regress = c("percent.mt", "nCount_RNA"), verbose = F)
+  
+} else {my.se = my.samples[[1]]}
+# How does the data look like?
+VlnPlot(my.se, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3, group.by = "orig.ident")
+
+###################
+## run PCA & xtSNE
+
+my.se=RunPCA(my.se, assay = "RNA", features = all.genes, npcs = 2, verbose = F)
+PCAPlot(my.se, group.by="orig.ident")
+# get rid of the W genes
+my.features = rownames(my.se@assays$integrated@scale.data)
+my.features = my.features[-which(my.features %in% my.W)]
+# Run the actual PCA
+my.se=RunPCA(my.se, assay = "integrated", verbose = F, features = my.features)
+PCAPlot(my.se, group.by="orig.ident")
+# Which dimensions will we choose?
+hist(my.se@reductions$pca@stdev^2, breaks = 500)
+my.dimensions=1:21
+
+
+# First, exaggerated
+my.tsne = fftRtsne(my.se@reductions$pca@cell.embeddings[,my.dimensions],
+                   max_iter = 1000,
+                   learning_rate =  round(dim(my.se)[2]/12),
+                   initialization =(my.se@reductions$pca@cell.embeddings[,1:2]/my.se@reductions$pca@stdev[1])*0.0001,
+                   perplexity_list = c(30, round(dim(my.se)[2]/100)),
+                   late_exag_coeff = 4,
+                   start_late_exag_iter = 250,
+                   fast_tsne_path="~/software/FIt-SNE/bin/fast_tsne")
+
+rownames(my.tsne) = colnames(my.se)
+
+# Save it as xtsne in the seurat object
+my.se[["xtsne"]] = CreateDimReducObject(embeddings = my.tsne, key = "xtsne_", assay = DefaultAssay(my.se), global = T)
+my.se = AddMetaData(my.se, metadata = data.frame(Embeddings(my.se, "xtsne")))
+
+# Then without exaggeration
+my.tsne = fftRtsne(my.se@reductions$pca@cell.embeddings[,my.dimensions],
+                   max_iter = 1000,
+                   learning_rate =  round(dim(my.se)[2]/12),
+                   initialization =(my.se@reductions$pca@cell.embeddings[,1:2]/my.se@reductions$pca@stdev[1])*0.0001,
+                   perplexity_list = c(30, round(dim(my.se)[2]/100)),
+                   fast_tsne_path="~/software/FIt-SNE/bin/fast_tsne")
+
+rownames(my.tsne) = colnames(my.se)
+my.se[["tsne"]] = CreateDimReducObject(embeddings = my.tsne, key = "tsne_", assay = DefaultAssay(my.se), global = T)
+my.se = AddMetaData(my.se, metadata = data.frame(Embeddings(my.se, "tsne")))
+
+###################
+## Find first the nearest neighbors
+my.se = FindNeighbors(object = my.se, dims=my.dimensions, verbose = F)
+
+my.se = FindClusters(object = my.se, resolution = 0.8, verbose = F, random.seed = 42)
+
+###################
+## save
+saveRDS(my.se, paste0("./robjects/",my.samplename,"_seurat_",format(Sys.Date(), "%d%m%y"),".rds"))
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+
+```
+
+## limb
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+my.path="/scicore/home/tschoppp/feregrin/projects/sc9x_extended_Sept19/data/"
+load(paste0(my.path,"L21_filteredUMIs_030919.RDa"))
+load(paste0(my.path,"L24_filteredUMIs_030919.RDa"))
+load(paste0(my.path,"L27_filteredUMIs_030919.RDa"))
+# here we need to load all the datasets that will be part of our analysis
+my.samples = list()
+my.samples[[1]] = L21f
+my.samples[[2]] = L24f
+my.samples[[3]] = L27f
+#The sample name, will  be used in plots and files
+my.samplename = "forelimb"
+# We can supply individual sample names if we want
+my.samplenames = c("L21", "L24", "L27")
+rm(list = c("L21f", "L24f", "L27f"))
+
+###################
+## build Seurat object
+for (i in 1:length(my.samples)) {
+  my.samples[[i]] = setNames(my.samples[[i]] ,paste0(my.samplenames[i],"_",colnames(my.samples[[i]])))
+  my.samples[[i]] = CreateSeuratObject(my.samples[[i]], project = my.samplenames[i])
+}
+
+###################
+## We collect data to calculate percentage of MT, cell cycle scores and the sex of the cells
+library(scran)
+set.seed(42)
+for (i in 1:length(my.samples)) {
+  
+  my.se = my.samples[[i]]
+  
+  #The mt genes
+  is.mt = (rownames(my.se)%in%mt)
+  # Percentage of reads belonging to Mt genes
+  my.se[["percent.mt"]] =  PercentageFeatureSet(my.se, features = mt)
+  # Normalize the data. Lognorm
+  my.se = NormalizeData(my.se, normalization.method = "LogNormalize", scale.factor = 10000, verbose = F)
+  # Scale the data
+  my.se = ScaleData(my.se, features = all.genes, verbose = F, do.scale = F)
+  
+  ## Cell Cycle
+  #Assign scores using the scaled data
+  assign.se = cyclone(my.se@assays$RNA@scale.data, gg.pairsm, gene.names=rownames(my.se))
+  #The difference
+  rownames(assign.se$scores) = colnames(my.se)
+  assign.se$scores$CC.Difference = (assign.se$scores$S - assign.se$scores$G2M)
+  #Add it to the object
+  my.se = AddMetaData(my.se, metadata = assign.se$scores)
+  ##
+  
+  # Transform the data, removing sources of variation
+  my.se = SCTransform(my.se, vars.to.regress = c("percent.mt", "nCount_RNA", "CC.Difference"),
+                      verbose = FALSE, return.only.var.genes = F, variable.features.n = NULL)
+  
+  my.samples[[i]] = my.se
+}
+detach("package:scran", unload=TRUE)
+
+###################
+## integrate 3 stages
+if (length(my.samples) > 1) {
+  
+  my.multi = T
+  
+  # Check for highly variable genes, per sample
+  my.HVF = c()
+  
+  for (i in 1:length(my.samples)) {
+    my.var = HVFInfo(my.samples[[i]], assay = "SCT")
+    # only those with a variability (whatever measure) > median + MAD
+    my.var = rownames(my.var)[which(my.var[,3] > ( median(my.var[,3]) + mad(my.var[,3]) ) )]
+    my.HVF = c(my.HVF, my.var) 
+  }
+  # all variable genes in all samples
+  my.HVF = unique(my.HVF)
+  
+  # shared genes across samples
+  my.features = intersect(rownames(my.samples[[1]]@assays$SCT@data), rownames(my.samples[[2]]@assays$SCT@data))
+  for ( i in 2:length(my.samples) ){ my.features = intersect(my.features, rownames(my.samples[[i]]@assays$SCT@data)) }
+  
+  # Which of the highly variable genes are in the shared genes?
+  my.HVF = intersect(my.HVF, my.features)
+  
+  # To integrate the samples into one space
+  my.samples = PrepSCTIntegration(object.list = my.samples, anchor.features = my.HVF, verbose = FALSE)
+  
+  # Find the anchors, from the variable genes that are shared
+  my.anchors = FindIntegrationAnchors(my.samples, normalization.method = "SCT", anchor.features = my.HVF, verbose = FALSE)
+  
+  # Integrate the data
+  my.se = IntegrateData(anchorset = my.anchors, normalization.method = "SCT", verbose = FALSE)
+  
+  # Scale the original data as well, to show differences
+  my.se = ScaleData(my.se, features = all.genes, assay = "RNA", vars.to.regress = c("percent.mt", "nCount_RNA"), verbose = F)
+  
+} else {my.se = my.samples[[1]]}
+# How does the data look like?
+VlnPlot(my.se, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3, group.by = "orig.ident")
+
+
+###################
+## run PCA & xtSNE
+
+my.se=RunPCA(my.se, assay = "RNA", features = all.genes, npcs = 2, verbose = F)
+PCAPlot(my.se, group.by="orig.ident")
+# get rid of the W genes
+my.features = rownames(my.se@assays$integrated@scale.data)
+my.features = my.features[-which(my.features %in% my.W)]
+# Run the actual PCA
+my.se=RunPCA(my.se, assay = "integrated", verbose = F, features = my.features)
+PCAPlot(my.se, group.by="orig.ident")
+# Which dimensions will we choose?
+hist(my.se@reductions$pca@stdev^2, breaks = 500)
+my.dimensions=1:19
+
+
+# First, exaggerated
+my.tsne = fftRtsne(my.se@reductions$pca@cell.embeddings[,my.dimensions],
+                   max_iter = 1000,
+                   learning_rate =  round(dim(my.se)[2]/12),
+                   initialization =(my.se@reductions$pca@cell.embeddings[,1:2]/my.se@reductions$pca@stdev[1])*0.0001,
+                   perplexity_list = c(30, round(dim(my.se)[2]/100)),
+                   late_exag_coeff = 4,
+                   start_late_exag_iter = 250,
+                   fast_tsne_path="~/software/FIt-SNE/bin/fast_tsne")
+
+rownames(my.tsne) = colnames(my.se)
+
+# Save it as xtsne in the seurat object
+my.se[["xtsne"]] = CreateDimReducObject(embeddings = my.tsne, key = "xtsne_", assay = DefaultAssay(my.se), global = T)
+my.se = AddMetaData(my.se, metadata = data.frame(Embeddings(my.se, "xtsne")))
+
+# Then without exaggeration
+my.tsne = fftRtsne(my.se@reductions$pca@cell.embeddings[,my.dimensions],
+                   max_iter = 1000,
+                   learning_rate =  round(dim(my.se)[2]/12),
+                   initialization =(my.se@reductions$pca@cell.embeddings[,1:2]/my.se@reductions$pca@stdev[1])*0.0001,
+                   perplexity_list = c(30, round(dim(my.se)[2]/100)),
+                   fast_tsne_path="~/software/FIt-SNE/bin/fast_tsne")
+
+rownames(my.tsne) = colnames(my.se)
+my.se[["tsne"]] = CreateDimReducObject(embeddings = my.tsne, key = "tsne_", assay = DefaultAssay(my.se), global = T)
+my.se = AddMetaData(my.se, metadata = data.frame(Embeddings(my.se, "tsne")))
+
+###################
+## Find first the nearest neighbors
+my.se = FindNeighbors(object = my.se, dims=my.dimensions, verbose = F)
+
+my.se = FindClusters(object = my.se, resolution = 0.8, verbose = F, random.seed = 42)
+
+###################
+## save
+saveRDS(my.se, paste0("./robjects/",my.samplename,"_seurat_",format(Sys.Date(), "%d%m%y"),".rds"))
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+
+```
+
+## log
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+sessionInfo()
+```
+

@@ -1,0 +1,94 @@
+---
+title: "scRNA_qualityControl"
+output: 
+  html_document:
+    df_print: paged
+  html_notebook:
+editor_options:
+  chunk_output_type: inline
+---
+
+adapted from Chris's script
+
+```{r setup, message=FALSE, warning=FALSE, echo=FALSE}
+library(Seurat);library(ggplot2)
+library(dplyr);library(stats)
+
+set.seed(1234)
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+mt=c("ENSGALG00000035334", #COX3
+     "ENSGALG00000032142", #MT-CO1
+     "ENSGALG00000032079", #MT-CYB
+     "ENSGALG00000037838", #ND6
+     "ENSGALG00000029500", #ND5
+     "ENSGALG00000036229", #MT-ND4
+     "ENSGALG00000042478", #ND4L
+     "ENSGALG00000030436", #ND3
+     "ENSGALG00000041091", #MT-ATP6
+     "ENSGALG00000032465", #MT-ATP8
+     "ENSGALG00000043768", #MT-ND2
+     "ENSGALG00000042750") #MT-ND1
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+sample.list=c("N15","N18","N22",
+              "S12","S15","S20",
+              "L21","L24","L27")
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+for(i in 1:length(sample.list)){
+  my.samplename=sample.list[i]
+  
+  #read in raw data
+  map.path="/scicore/home/tschoppp/GROUP/mapped_data/"
+  samples=paste0("10x_",my.samplename,"_ENSG6_extended_260819")
+  my.data=Read10X(data.dir = paste0(map.path,samples, "/outs/filtered_gene_bc_matrices/10XGenome_ENSG6_extended_210819/"), gene.column = 1)
+  
+  ###################
+  ## filter steps
+  ctable = my.data
+  
+  # first filter out the cells that have more than 5 times the mean of the UMI counts, and less than 20% the mean. These represent the probable doublets and poor cells.
+  ctable = ctable[,Matrix::colSums(ctable)<(5*summary(Matrix::colSums(ctable))[4])];dim(ctable)
+  ctable = ctable[,Matrix::colSums(ctable)>(0.2*summary(Matrix::colSums(ctable))[3])];dim(ctable)
+  
+  # second filter is for mitochondrial UMIs, we get rid of cells that show that their fraction of UMIs from MT origin is higher than: 0.1
+  is.mt = (rownames(ctable)%in%mt)
+  percent.mt = Matrix::colSums(ctable[is.mt, ])/Matrix::colSums(ctable)
+  my.threshold = 0.1
+  ctable=ctable[,-which(percent.mt> my.threshold)];dim(ctable)
+  
+  # The next filter is for cells that have an unusual number of genes detected per UMI
+  gct = data.frame(cell = colnames(ctable), genes = (0))
+  # Put the gene counts
+  for (i in 1:dim(ctable)[2] ){
+    gct [i,2] = length(which(ctable[,i] > 0))
+  }
+  #Column for UMI counts
+  gct = cbind(gct, UMIs=(Matrix::colSums(ctable)))
+  ctable = ctable[,!((gct$genes/gct$UMIs)<0.15 & gct$genes<(max(gct$genes)/3)*2)];dim(ctable)
+  gct=gct[gct$cell %in% colnames(ctable),]
+  
+  ###################
+  ## save 
+  my.data = my.data[,colnames(ctable)]
+  #saveRDS(my.data, file= paste0("./data/",my.samplename,"_filteredUMIs_",format(Sys.Date(), "%d%m%y"),".rds"))
+  
+}
+
+
+```
+
+## log
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+sessionInfo()
+```

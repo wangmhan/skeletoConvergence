@@ -1,0 +1,266 @@
+---
+title: "scRNA_clustering"
+output: 
+  html_document:
+    df_print: paged
+  html_notebook:
+editor_options:
+  chunk_output_type: inline
+---
+
+```{r setup, message=FALSE, warning=FALSE, echo=FALSE}
+library(Seurat);library(ggplot2)
+library(dplyr);library(clustree)
+library(mclust); library(pheatmap)
+source("~/software/FIt-SNE/fast_tsne.R")
+``` 
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+rna_path <- "/scicore/home/tschoppp/GROUP/lab/Chris.shared/for.Menghan/"
+my.files=paste0(rna_path,c("forelimb_seurat_290420.rds","frontonasal_seurat_290420.rds","somites_seurat_290420.rds"))
+
+#add gene name info
+library(GenomeInfoDb); library(ensembldb)
+anno_path <- "/scicore/home/tschoppp/GROUP/references/genomes/ENS_g6/chicken_Gg6_atac_pre/"
+db <- ensDbFromGtf(gtf=paste0(anno_path,"Gg6_extended_200819.filter.gtf"), 
+                   organism = "Gallus_gallus", genomeVersion = "GRCg6a", version = 97)
+edb <- EnsDb(db); rm(db); gene.ranges <- genes(edb)
+gene.info=data.frame(genename=gene.ranges$gene_name,chr=seqnames(gene.ranges),stringsAsFactors = F)
+rownames(gene.info)=gene.ranges$gene_id
+
+#add W info
+my.W = read.table("/scicore/home/tschoppp/wang0007/scRNA/ensembl97_wgenes.txt",sep="\t",header = TRUE,row.names = 1,stringsAsFactors = FALSE)
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+#function
+#extract skeletal develop related clusters
+extract=function(object=my.files[1], subset.cls=c(1)){
+  my.se = readRDS(object); DefaultAssay(my.se)="integrated"
+  my.se$clusters_res1=my.se$seurat_clusters
+  my.se = FindClusters(object = my.se, resolution = 0.2, algorithm=4, verbose = F, random.seed = 42)
+  print(table(Idents(my.se))); print(DimPlot(my.se, label=T))
+  my.se = subset(my.se, idents=subset.cls)
+  return(my.se)
+}
+
+runxtsne=function(my.se=my.subset,my.dimensions=my.dimensions){
+  #xtsne, with exaggeration
+  my.tsne = fftRtsne(my.se@reductions$pca@cell.embeddings[,my.dimensions],
+                     max_iter = 1000,
+                     learning_rate =  round(dim(my.se)[2]/12),
+                     initialization =(my.se@reductions$pca@cell.embeddings[,1:2]/my.se@reductions$pca@stdev[1])*0.0001,
+                     perplexity_list = c(30, round(dim(my.se)[2]/100)),
+                     late_exag_coeff = 4,
+                     start_late_exag_iter = 250,
+                     fast_tsne_path="~/software/FIt-SNE/bin/fast_tsne")
+  rownames(my.tsne) = colnames(my.se)
+  my.se[["xtsne"]] = CreateDimReducObject(embeddings = my.tsne, key = "xtsne_", assay = DefaultAssay(my.se), global = T)
+  my.se = AddMetaData(my.se, metadata = data.frame(Embeddings(my.se, "xtsne")))
+  #tsne
+  my.tsne = fftRtsne(my.se@reductions$pca@cell.embeddings[,my.dimensions],
+                     max_iter = 1000,
+                     learning_rate =  round(dim(my.se)[2]/12),
+                     initialization =(my.se@reductions$pca@cell.embeddings[,1:2]/my.se@reductions$pca@stdev[1])*0.0001,
+                     perplexity_list = c(30, round(dim(my.se)[2]/100)),
+                     fast_tsne_path="~/software/FIt-SNE/bin/fast_tsne")
+  rownames(my.tsne) = colnames(my.se)
+  my.se[["tsne"]] = CreateDimReducObject(embeddings = my.tsne, key = "tsne_", assay = DefaultAssay(my.se), global = T)
+  my.se = AddMetaData(my.se, metadata = data.frame(Embeddings(my.se, "tsne")))
+  return(my.se)
+}
+```
+
+## nasal
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+my.subset=extract(object=my.files[2], subset.cls=c(1))
+DefaultAssay(my.subset)="integrated"
+my.subset$clusters_res0=Idents(my.subset)
+p0=DimPlot(my.subset)
+
+my.features=NULL
+#first try to use the same procedure as Christ, but cause problem when run:my.var = HVFInfo(my.se, assay = "SCT")
+for(i in unique(my.subset$orig.ident)){
+  my.se=subset(my.subset,cells=rownames(my.subset@meta.data[my.subset@meta.data$orig.ident==i,]))
+  my.se=FindVariableFeatures(my.se, nfeatures = 2000, assay = "SCT")
+  my.features=c(my.features,VariableFeatures(my.se))
+}; rm(my.se)
+my.features=unique(my.features[my.features %in% rownames(my.subset@assays$integrated@scale.data)]); length(my.features)
+my.features = my.features[!(my.features %in% my.W$ensembl_gene_id)]
+#my.features=rownames(my.subset@assays$integrated@scale.data);my.features = my.features[!(my.features %in% my.W$ensembl_gene_id)]
+VariableFeatures(my.subset) = my.features
+
+source("/scicore/home/tschoppp/wang0007/Rscript/colors/nasalcolors.R")
+my.cols = c(nasal.colors(3));names(my.cols)=c("N15","N18","N22")
+my.subset=RunPCA(my.subset, assay = "integrated", verbose = F)
+PCAPlot(my.subset, group.by="orig.ident",cols=my.cols)
+ElbowPlot(my.subset, ndims = 30, reduction = "pca")
+my.dimensions=c(1:20)
+
+my.subset=runxtsne(my.se=my.subset,my.dimensions=my.dimensions)
+my.subset = FindNeighbors(object = my.subset, dims=my.dimensions, verbose = F)
+write.table(my.features,"~/scRNA/clustering/seuratFine_nasal_hvgs.txt",quote = F)
+
+```
+
+### new clustering
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.height=6, fig.width=8}
+Idents(my.subset)=my.subset$clusters_res0
+p1=DimPlot(my.subset,reduction = "xtsne")+ggtitle("Broad")
+res.range=c(0.2,0.4,0.8)
+my.subset = FindClusters(object = my.subset, resolution = res.range[1], algorithm=4,  verbose = F, random.seed = 42)
+my.subset$clusters_res0.2=Idents(my.subset)
+p2=DimPlot(my.subset,label = T,reduction = "xtsne")+ggtitle("res=0.2")
+my.subset = FindClusters(object = my.subset, resolution = res.range[2], algorithm=4,  verbose = F, random.seed = 42)
+my.subset$clusters_res0.4=Idents(my.subset)
+p3=DimPlot(my.subset,label = T,reduction = "xtsne")+ggtitle("res=0.4")
+my.subset = FindClusters(object = my.subset, resolution = res.range[3], algorithm=4,  verbose = F, random.seed = 42)
+my.subset$clusters_res0.8=Idents(my.subset)
+p4=DimPlot(my.subset,label = T,reduction = "xtsne")+ggtitle("res=0.8")
+p0
+p1+p2+p3+p4
+
+clustree(my.subset@meta.data, prefix = "clusters_res", 
+         layout = "sugiyama", use_core_edges = FALSE)
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+saveRDS(my.subset,"~/scRNA/clustering/subset_nasal.rds")
+```
+
+## somite
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+my.subset=extract(object=my.files[3], subset.cls=c(1))
+DefaultAssay(my.subset)="integrated"
+my.subset$clusters_res0=Idents(my.subset)
+p0=DimPlot(my.subset)
+
+my.features=NULL
+#first try to use the same procedure as Christ, but cause problem when run:my.var = HVFInfo(my.se, assay = "SCT")
+for(i in unique(my.subset$orig.ident)){
+  my.se=subset(my.subset,cells=rownames(my.subset@meta.data[my.subset@meta.data$orig.ident==i,]))
+  my.se=FindVariableFeatures(my.se, nfeatures = 2000, assay = "SCT")
+  my.features=c(my.features,VariableFeatures(my.se))
+}; rm(my.se)
+my.features=unique(my.features[my.features %in% rownames(my.subset@assays$integrated@scale.data)]); length(my.features)
+my.features = my.features[!(my.features %in% my.W$ensembl_gene_id)]
+#my.features=rownames(my.subset@assays$integrated@scale.data);my.features = my.features[!(my.features %in% my.W$ensembl_gene_id)]
+VariableFeatures(my.subset) = my.features
+
+source("/scicore/home/tschoppp/wang0007/Rscript/colors/somitecolors.R")
+my.cols = c(somite.colors(3));names(my.cols)=c("S12","S15","S20")
+my.subset=RunPCA(my.subset, assay = "integrated", verbose = F)
+PCAPlot(my.subset, group.by="orig.ident",cols=my.cols)
+ElbowPlot(my.subset, ndims = 30, reduction = "pca")
+my.dimensions=c(1:20)
+
+my.subset=runxtsne(my.se=my.subset,my.dimensions=my.dimensions)
+my.subset = FindNeighbors(object = my.subset, dims=my.dimensions, verbose = F)
+write.table(my.features,"~/scRNA/clustering/seuratFine_somite_hvgs.txt",quote = F)
+
+```
+
+### new clustering
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.height=6, fig.width=8}
+Idents(my.subset)=my.subset$clusters_res0
+p1=DimPlot(my.subset,reduction = "xtsne")+ggtitle("Broad")
+res.range=c(0.2,0.4,0.8)
+my.subset = FindClusters(object = my.subset, resolution = res.range[1], algorithm=4,  verbose = F, random.seed = 42)
+my.subset$clusters_res0.2=Idents(my.subset)
+p2=DimPlot(my.subset,label = T,reduction = "xtsne")+ggtitle("res=0.2")
+my.subset = FindClusters(object = my.subset, resolution = res.range[2], algorithm=4,  verbose = F, random.seed = 42)
+my.subset$clusters_res0.4=Idents(my.subset)
+p3=DimPlot(my.subset,label = T,reduction = "xtsne")+ggtitle("res=0.4")
+my.subset = FindClusters(object = my.subset, resolution = res.range[3], algorithm=4,  verbose = F, random.seed = 42)
+my.subset$clusters_res0.8=Idents(my.subset)
+p4=DimPlot(my.subset,label = T,reduction = "xtsne")+ggtitle("res=0.8")
+p0
+p1+p2+p3+p4
+
+clustree(my.subset@meta.data, prefix = "clusters_res", 
+         layout = "sugiyama", use_core_edges = FALSE)
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+
+```
+
+## limb
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+my.subset=extract(object=my.files[1], subset.cls=c(1,2)) 
+DefaultAssay(my.subset)="integrated"
+my.subset$clusters_res0=Idents(my.subset)
+p0=DimPlot(my.subset)
+
+my.features=NULL
+for(i in unique(my.subset$orig.ident)){
+  my.se=subset(my.subset,cells=rownames(my.subset@meta.data[my.subset@meta.data$orig.ident==i,]))
+  my.se=FindVariableFeatures(my.se, nfeatures = 2000, assay = "SCT")
+  # only those with a variability (whatever measure) > median + MAD
+  my.var = HVFInfo(my.se,assay = "SCT")
+  my.var = rownames(my.var)[which(my.var[,3] > ( median(my.var[,3]) + mad(my.var[,3]) ) )]
+  my.features=c(my.features,VariableFeatures(my.se)) #VariableFeatures(my.se) | my.var
+}; rm(my.se)
+my.features=unique(my.features[my.features %in% rownames(my.subset@assays$integrated@scale.data)]); length(my.features)
+my.features = my.features[!(my.features %in% my.W$ensembl_gene_id)]
+VariableFeatures(my.subset) = my.features
+#unique my.var:2785 is less than VariableFeatures(my.se):3603. And they are all included in VariableFeatures(my.se).
+
+source("/scicore/home/tschoppp/wang0007/Rscript/colors/limbcolors.R")
+my.cols = c(limb.colors(3));names(my.cols)=c("L21","L24","L27")
+my.subset=RunPCA(my.subset, assay = "integrated", verbose = F)
+PCAPlot(my.subset, group.by="orig.ident",cols=my.cols)
+ElbowPlot(my.subset, ndims = 30, reduction = "pca")
+my.dimensions=c(1:20)
+
+my.subset=runxtsne(my.se=my.subset,my.dimensions=my.dimensions)
+my.subset = FindNeighbors(object = my.subset, dims=my.dimensions, verbose = F)
+write.table(my.features,"~/scRNA/clustering/seuratFine_limb_hvgs.txt",quote = F)
+```
+
+### new clustering
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.height=6, fig.width=8}
+Idents(my.subset)=my.subset$clusters_res0
+p1=DimPlot(my.subset,reduction = "xtsne")+ggtitle("Broad")
+res.range=c(0.2,0.4,0.8)
+my.subset = FindClusters(object = my.subset, resolution = res.range[1], algorithm=4,  verbose = F, random.seed = 42)
+my.subset$clusters_res0.2=Idents(my.subset)
+p2=DimPlot(my.subset,label = T,reduction = "xtsne")+ggtitle("res=0.2")
+my.subset = FindClusters(object = my.subset, resolution = res.range[2], algorithm=4,  verbose = F, random.seed = 42)
+my.subset$clusters_res0.4=Idents(my.subset)
+p3=DimPlot(my.subset,label = T,reduction = "xtsne")+ggtitle("res=0.4")
+my.subset = FindClusters(object = my.subset, resolution = res.range[3], algorithm=4,  verbose = F, random.seed = 42)
+my.subset$clusters_res0.8=Idents(my.subset)
+p4=DimPlot(my.subset,label = T,reduction = "xtsne")+ggtitle("res=0.8")
+p0
+p1+p2+p3+p4
+
+clustree(my.subset@meta.data, prefix = "clusters_res", 
+         layout = "sugiyama", use_core_edges = FALSE)
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+### to see if any subclusters can be merged
+#merge if: 1)aggregated transcriptomes Pearson's coefficient > 0.95; 2) clusters overlapping in xtSNE space
+my.average=AverageExpression(my.subset,assays = "integrated")[['integrated']]
+my.correlation=pairwise.cor(data = log1p(my.average[my.features,]),method = "pearson")
+#pheatmap(my.correlation)
+```
+
+## log
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+sessionInfo()
+```

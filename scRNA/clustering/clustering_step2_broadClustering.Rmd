@@ -1,0 +1,136 @@
+---
+title: "scRNA_clustering"
+output: 
+  html_document:
+    df_print: paged
+  html_notebook:
+editor_options:
+  chunk_output_type: inline
+---
+
+```{r setup, message=FALSE, warning=FALSE, echo=FALSE}
+library(Seurat);library(ggplot2)
+library(dplyr);library(clustree)
+library(mclust)
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+rna_path <- "/scicore/home/tschoppp/GROUP/lab/Chris.shared/for.Menghan/"
+my.files=paste0(rna_path,c("forelimb_seurat_290420.rds","frontonasal_seurat_290420.rds","somites_seurat_290420.rds"))
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+library(biomaRt)
+ensembl=useMart("ENSEMBL_MART_ENSEMBL",host="www.ensembl.org")
+dataset_n <- "ggallus_gene_ensembl";
+sp_ensembl=useEnsembl(biomart = "ensembl",dataset=dataset_n,version = "97")
+#listAttributes(sp_ensembl)[c(11:35),]
+gene_inf_n <- c("ensembl_gene_id","external_gene_name","chromosome_name")
+gene_inf <- getBM(attributes=gene_inf_n, mart=sp_ensembl)
+
+anno_path <- "/scicore/home/tschoppp/GROUP/references/genomes/ENS_g6/"
+tmp=readLines(paste0(anno_path,"Gg6_extended_200819.gtf")); tmp=unlist(strsplit(tmp,"\t"));tmp=matrix(tmp,ncol=9,byrow = TRUE)
+tmp2=unlist(strsplit(tmp[,9],";"));tmp2=tmp2[grep("gene_id",tmp2)]
+tmp2=gsub("\"","",tmp2);tmp2=gsub("gene_id ","",tmp2)
+geneid=tmp2[!duplicated(tmp2)];rm(tmp2);rm(tmp)
+geneinfo=gene_inf[gene_inf$ensembl_gene_id %in% geneid,]
+extra=geneid[!(geneid %in% gene_inf$ensembl_gene_id)]
+extra=data.frame(ensembl_gene_id=extra,
+                 external_gene_name="", chromosome_name="")
+gene.info=rbind(geneinfo, extra)
+colnames(gene.info)=c("geneid","genename","chr")
+rownames(gene.info)=gene.info$geneid
+```
+
+## nasal
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.height=6, fig.width=8}
+my.se = readRDS(my.files[2]); DefaultAssay(my.se)="integrated"
+my.se$clusters_res0.8=Idents(my.se)
+p1=DimPlot(my.se,label = T)+ggtitle("res=0.8")
+
+my.se = FindClusters(object = my.se, resolution = 0.8, algorithm=4, verbose = F, random.seed = 42)
+my.se$clusters_res0.8=Idents(my.se)
+p1=DimPlot(my.se,label = T)+ggtitle("res=0.8")
+
+res.range=c(0.2,0.3,0.4)
+my.se = FindClusters(object = my.se, resolution = res.range[1], algorithm=4, verbose = F, random.seed = 42)
+my.se$clusters_res0.2=Idents(my.se)
+p2=DimPlot(my.se,label = T)+ggtitle("res=0.2")
+my.se = FindClusters(object = my.se, resolution = res.range[2], algorithm=4, verbose = F, random.seed = 42)
+my.se$clusters_res0.3=Idents(my.se)
+p3=DimPlot(my.se,label = T)+ggtitle("res=0.3")
+my.se = FindClusters(object = my.se, resolution = res.range[3], algorithm=4, verbose = F, random.seed = 42)
+my.se$clusters_res0.4=Idents(my.se)
+p4=DimPlot(my.se,label = T)+ggtitle("res=0.4")
+p1+p2+p3+p4
+clustree(my.se@meta.data, prefix = "clusters_res", 
+         layout = "sugiyama", use_core_edges = FALSE)
+
+```
+
+## somite
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.height=6, fig.width=8}
+my.se = readRDS(my.files[3])
+DefaultAssay(my.se)="integrated"
+my.se$clusters_res0.8=Idents(my.se)
+p1=DimPlot(my.se,label = T)+ggtitle("res=0.8")
+
+my.se = FindClusters(object = my.se, resolution = 0.8, algorithm=4, verbose = F, random.seed = 42)
+my.se$clusters_res0.8=Idents(my.se)
+p1=DimPlot(my.se,label = T)+ggtitle("res=0.8")
+
+res.range=c(0.2,0.3,0.4)
+my.se = FindClusters(object = my.se, resolution = res.range[1], algorithm=4, verbose = F, random.seed = 42)
+my.se$clusters_res0.2=Idents(my.se)
+p2=DimPlot(my.se,label = T)+ggtitle("res=0.2")
+my.se = FindClusters(object = my.se, resolution = res.range[2], algorithm=4, verbose = F, random.seed = 42)
+my.se$clusters_res0.3=Idents(my.se)
+p3=DimPlot(my.se,label = T)+ggtitle("res=0.3")
+my.se = FindClusters(object = my.se, resolution = res.range[3], algorithm=4, verbose = F, random.seed = 42)
+my.se$clusters_res0.4=Idents(my.se)
+p4=DimPlot(my.se,label = T)+ggtitle("res=0.4")
+p1+p2+p3+p4
+clustree(my.se@meta.data, prefix = "clusters_res", 
+         layout = "sugiyama", use_core_edges = FALSE)
+```
+
+## limb
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.height=6, fig.width=8}
+my.se = readRDS(my.files[1]); DefaultAssay(my.se)="integrated"
+my.se$clusters_res0.8=Idents(my.se)
+p1=DimPlot(my.se,label = T)+ggtitle("res=0.8")
+
+my.se = FindClusters(object = my.se, resolution = 0.8, algorithm=4, verbose = F, random.seed = 42)
+my.se$clusters_res0.8=Idents(my.se)
+p1=DimPlot(my.se,label = T)+ggtitle("res=0.8")
+
+res.range=c(0.2,0.3,0.4)
+my.se = FindClusters(object = my.se, resolution = res.range[1], algorithm=4, verbose = F, random.seed = 42)
+my.se$clusters_res0.2=Idents(my.se)
+p2=DimPlot(my.se,label = T)+ggtitle("res=0.2")
+my.se = FindClusters(object = my.se, resolution = res.range[2], algorithm=4, verbose = F, random.seed = 42)
+my.se$clusters_res0.3=Idents(my.se)
+p3=DimPlot(my.se,label = T)+ggtitle("res=0.3")
+my.se = FindClusters(object = my.se, resolution = res.range[3], algorithm=4, verbose = F, random.seed = 42)
+my.se$clusters_res0.4=Idents(my.se)
+p4=DimPlot(my.se,label = T)+ggtitle("res=0.4")
+p1+p2+p3+p4
+clustree(my.se@meta.data, prefix = "clusters_res", 
+         layout = "sugiyama", use_core_edges = FALSE)
+
+```
+
+## log
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+sessionInfo()
+```
+
+
