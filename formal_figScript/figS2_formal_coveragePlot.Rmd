@@ -1,0 +1,219 @@
+---
+title: "figureS2_plot"
+output: 
+  html_document:
+    df_print: paged
+  html_notebook:
+editor_options:
+  chunk_output_type: inline
+---
+
+for panel D
+
+```{r setup, message=FALSE, warning=FALSE, echo=FALSE}
+# packages
+library(Signac); library(Seurat); 
+library(dplyr); library(scales)
+library(GenomeInfoDb); library(ensembldb)
+library(ggplot2); library(patchwork);library(viridisLite)
+library(GenomicRanges); library(future)
+library(pheatmap); library(RColorBrewer);library(gridExtra)
+
+source("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/figure_script/integration_function.R")
+
+```
+
+###############
+## data
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+#gene name info
+gene.info=read.table("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/ensembl97_geneinfo.txt", sep="\t",header = TRUE,row.names = 1,stringsAsFactors = FALSE)
+gene.info[gene.info$genename=="","genename"]=rownames(gene.info[gene.info$genename=="",])
+gene.info$genename=toupper(gene.info$genename)
+
+# scATAC data path
+atac_path <- "/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/integration/"
+my.afiles=paste0(atac_path,c("limb_atac_integrated010721_activity.rds","nasal_atac_integrated010721_activity.rds","somite_atac_integrated010721_activity.rds"))
+my.subafiles=paste0(atac_path,c("limb_atac_intgtFine010721_activity.rds","nasal_atac_intgtFine010721_activity.rds","somite_atac_intgtFine010721_activity.rds"))
+
+my.data=list(); ctypes=list(); mcolors=list()
+my.subdata=list(); subctypes=list(); msubcolors=list()
+markers=list()
+
+grey=brewer.pal(n = 9, name = "Greys")
+colfunc <- colorRampPalette(c(grey[3],grey[7])) #plot(rep(1,10),col=colfunc(10),pch=19,cex=3)
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+#reorder celltype
+alevels=list()
+
+#place to optimize: order of celltype
+origin="nasal"
+alevels[[origin]]=c("cranialMesenchyme","amb_cranialMesenchyme","Neurons","NeuronalCells","Skin","Vessels","Blood")
+#rlevels[[origin]]=c("cranialMesenchyme","CyclingCells","proliferatingNeurons","Neurons","NeuronalCells","Skin","Vessels","Blood")
+
+origin="somite"
+alevels[[origin]]=c("Sclerotome","Dermomyotome","amb_Dermomyotome","lateralPlateMesoderm","neuralTubeProgenitors","neuralTubeProgenitorsOrNeurons","Neurons","neuralCrest","intermediateMesoderm","Skin","Vessels","Blood")
+#rlevels[[origin]]=c("Sclerotome","Dermomyotome","lateralPlateMesoderm","neuralTubeProgenitors","Neurons","neuralCrest","intermediateMesoderm","mitochondrialRich","Skin","Vessels","Blood")
+
+origin="limb"
+alevels[[origin]]=c("Mesenchyme","MesenchymeORskeletogenicCells","skeletogenicCells","amb_Mesenchyme","Muscle","Skin","Leukocytes")
+#rlevels[[origin]]=c("Mesenchyme","skeletogenicCells","posteriorMesenchyme","CyclingCells","Muscle","Skin","Leukocytes","Blood")
+
+```
+
+## coveragePlot
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+library(GenomeInfoDb); library(ensembldb)
+anno_path <- "/scicore/home/tschoppp/GROUP/references/genomes/ENS_g6/chicken_Gg6_atac_pre/"
+db <- ensDbFromGtf(gtf=paste0(anno_path,"Gg6_extended_200819.filter.gtf"), 
+                   organism = "Gallus_gallus", genomeVersion = "GRCg6a", version = 97)
+edb <- EnsDb(db)
+gene.ranges <- genes(edb); length(gene.ranges$gene_id)
+
+markers=list()
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.width=3,fig.height=8}
+origin="nasal"
+my.data[[origin]] = readRDS(paste0("~/scATAC/integration/",origin,"_atac_integrated010721.rds"))
+my.meta=readRDS(gsub("activity","meta",my.afiles[2]))
+my.data[[origin]]=AddMetaData(my.data[[origin]],metadata = my.meta[rownames(my.data[[origin]]@meta.data),c("broad","annotation_broad","fine","annotation_fine")],col.name = c("broad","annotation_broad","fine","annotation_fine"))
+
+DefaultAssay(my.data[[origin]])="macs2peaks"
+Idents(my.data[[origin]])=factor(my.data[[origin]]$annotation_broad,
+                                 levels=alevels[[origin]])
+
+#place to optimize: color by ASCII code
+#grey used gradient
+mcolors[[origin]]=c("#DC0078", "#FFC125",
+                     "#2E8B57",
+                    "#32CD32", "#A020F0",
+                    "#8B3E2F", "#BEBEBE")
+mcolors[[origin]]=c("#DC0078",colfunc(6))
+names(mcolors[[origin]])=alevels[[origin]]
+
+daps=read.table(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/diffAnalysis/",origin,"_daps_broadCelltype.txt"),sep = "\t")
+daps$closest= ClosestFeature(regions = daps$gene,annotation = gene.ranges, sep = c('-', '-'))
+
+markers[[origin]]=c("PRRX1",
+                    "ALX4",
+                    "LRRN1",
+                    "ELAVL4",
+                    "ANXA2",
+                    "PECAM1",
+                    "HBBR")
+
+# markers from scRNA, use the top 1 DARs per marker for each cell type respectively.
+pdf(paste0("coverage_Plot_",origin,".pdf"),height=6,width=3)
+for(i in 1:length(markers[[origin]])){
+   marker.pks=daps[daps$cluster==alevels[[origin]][i] & daps$closest$gene_name==markers[[origin]][i] & order(-daps$avg_log2FC),"gene"]
+   if(length(marker.pks)==0){ next }
+   cov_plot=CoveragePlot(my.data[[origin]],region = marker.pks[1],
+                      extend.upstream = 100,extend.downstream = 100) + ggtitle(markers[[origin]][i]) & scale_fill_manual(values = mcolors[[origin]])
+   print(cov_plot)
+}
+dev.off()
+my.data[[origin]]=NULL;gc()
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.width=4,fig.height=10}
+origin="somite"
+my.data[[origin]] = readRDS(paste0("~/scATAC/integration/",origin,"_atac_integrated010721.rds"))
+my.meta=readRDS(gsub("activity","meta",my.afiles[3]))
+my.data[[origin]]=AddMetaData(my.data[[origin]],metadata = my.meta[rownames(my.data[[origin]]@meta.data),c("broad","annotation_broad","fine","annotation_fine")],col.name = c("broad","annotation_broad","fine","annotation_fine"))
+
+DefaultAssay(my.data[[origin]])="macs2peaks"
+Idents(my.data[[origin]])=factor(my.data[[origin]]$annotation_broad,
+                                 levels=alevels[[origin]])
+
+#place to optimize: color by ASCII code
+#grey used gradient
+mcolors[[origin]]=c("#008FD4","#CD0000","#CD0000","#8B1C62",
+                    "#54FF9F","#2E8B57","#2E8B57",
+                     "#32CD32","#8B3E2F","#A020F0","#B03060",
+                     "#BEBEBE")
+mcolors[[origin]]=c("#008FD4",colfunc(11))
+names(mcolors[[origin]])=alevels[[origin]]
+
+daps=read.table(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/diffAnalysis/",origin,"_daps_broadCelltype.txt"),sep = "\t")
+daps$closest= ClosestFeature(regions = daps$gene,annotation = gene.ranges, sep = c('-', '-'))
+
+markers[[origin]]=c("PAX1",
+                    "MEOX1","TCF15",
+                    "HAND2",
+                    #"CKB","PCNA",
+                    "FABP7","LDHB",
+                    "LRRN1",
+                    "SOX10",
+                    "LHX1",
+                    "ANXA2",
+                    "PECAM1",
+                    "HBBR")
+
+# markers from scRNA, use the top 1 DARs per marker for each cell type respectively.
+
+for(i in 1:length(markers[[origin]])){
+   marker.pks=daps[daps$cluster==alevels[[origin]][i] & daps$closest$gene_name==markers[[origin]][i] & order(-daps$avg_log2FC),"gene"]
+   if(length(marker.pks)==0){ next }
+   cov_plot=CoveragePlot(my.data[[origin]],region = marker.pks[1],
+                      extend.upstream = 100,extend.downstream = 100) + ggtitle(markers[[origin]][i]) & scale_fill_manual(values = mcolors[[origin]])
+   print(cov_plot)
+}
+my.data[[origin]]=NULL;gc()
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.width=4,fig.height=8}
+origin="limb"
+my.data[[origin]] = readRDS(paste0("~/scATAC/integration/",origin,"_atac_integrated010721.rds"))
+my.meta=readRDS(gsub("activity","meta",my.afiles[1]))
+my.data[[origin]]=AddMetaData(my.data[[origin]],metadata = my.meta[rownames(my.data[[origin]]@meta.data),c("broad","annotation_broad","fine","annotation_fine")],col.name = c("broad","annotation_broad","fine","annotation_fine"))
+
+DefaultAssay(my.data[[origin]])="macs2peaks"
+Idents(my.data[[origin]])=factor(my.data[[origin]]$annotation_broad,
+                                 levels=alevels[[origin]])
+
+#place to optimize: color by ASCII code
+#grey used gradient
+mcolors[[origin]]=c("#FFD01F","#FF7F50","#FFA309","#FF0000",
+                     "#1E90FF","#A020F0","#CD0000")
+mcolors[[origin]]=c("#FFD01F","#FFA309","#FF7F50",colfunc(4))
+names(mcolors[[origin]])=alevels[[origin]]
+
+daps=read.table(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/diffAnalysis/",origin,"_daps_broadCelltype.txt"),sep = "\t")
+daps$closest= ClosestFeature(regions = daps$gene,annotation = gene.ranges, sep = c('-', '-'))
+
+markers[[origin]]=c("PRRX1","WNT5A",
+                    "PTN",#"SOX8",
+                    "SHOX2",
+                    "TCF15",
+                    "ANXA2",
+                    "FTH1") #"GSTA3"
+
+# markers from scRNA, use the top 1 DARs per marker for each cell type respectively.
+
+for(i in 1:length(markers[[origin]])){
+   marker.pks=daps[daps$cluster==alevels[[origin]][i] & daps$closest$gene_name==markers[[origin]][i] & order(-daps$avg_log2FC),"gene"]
+   if(length(marker.pks)==0){ next }
+   cov_plot=CoveragePlot(my.data[[origin]],region = marker.pks[1],
+                      extend.upstream = 100,extend.downstream = 100) + ggtitle(markers[[origin]][i]) & scale_fill_manual(values = mcolors[[origin]])
+   print(cov_plot)
+}
+my.data[[origin]]=NULL;gc()
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+
+```
+
+## sessioninfo
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+sessionInfo()
+```
+
+

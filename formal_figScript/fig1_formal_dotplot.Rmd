@@ -1,0 +1,307 @@
+---
+title: "figure1_plot"
+output: 
+  html_document:
+    df_print: paged
+  html_notebook:
+editor_options:
+  chunk_output_type: inline
+---
+
+for panel G
+
+## Figure 1
+
+```{r setup, message=FALSE, warning=FALSE, echo=FALSE}
+# packages
+library(Seurat);library(ggplot2)
+library(dplyr);library(RColorBrewer)
+library(viridis);library(gridExtra)
+library(slingshot)
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+# derived from code: fig4_metaGenes.Rmd & fig4_slingshot.Rmd
+
+# https://github.com/CFeregrino/scWGCNA/blob/main/R/scWGCNA.eigen.R
+scW.eigen = function(modules, seurat){
+  
+  if (class(modules) == "list") {
+    my.cols = modules[["dynamicCols"]]
+  } else {my.cols = modules}
+  
+  if (is.null(names(my.cols))) {
+    stop("Modules should be provided, either as a scWCGNA object calculated from run.scWGCNA.\n
+         Alternatively, as a named vector of colors (or other module names), where the names correspond to the gene names")
+  }
+  
+  my.s = Seurat::GetAssayData(seurat)
+  
+  my.cols=my.cols[names(my.cols) %in% rownames(my.s)]
+  my.s = t(as.matrix(my.s[names(my.cols),]))
+  
+  my.me = WGCNA::moduleEigengenes(my.s, colors = my.cols)
+  
+  my.gmm = as.data.frame(WGCNA::signedKME(my.s, my.me$eigengenes))
+  my.mmp = as.data.frame(WGCNA::corPvalueStudent(as.matrix(my.gmm), nrow(my.s)))
+  
+  my.list = list(Module.Eigengenes = my.me, Gene.Module.Membership = my.gmm, Module.Membership.Pvalue = my.mmp)
+  
+  return(my.list)
+  
+}
+
+```
+
+## module score
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+#gene name info
+gene.info=read.table("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/ensembl97_geneinfo.txt",
+                     sep="\t",header = TRUE,row.names = 1,stringsAsFactors = FALSE)
+gene.info[gene.info$genename=="","genename"]=rownames(gene.info[gene.info$genename=="",])
+gene.info$genename=toupper(gene.info$genename)
+
+#data info
+my.origins=c("limb","somite","nasal")
+my.files=paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/clustering/subset_",my.origins,".rds")
+
+my.pfiles=paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/pseudotime/ptime_",my.origins,"_slingshot.rds")
+my.mfiles=paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/clustering/meta_",my.origins,".rds")
+cid=c("curve1","curve2","curve4")
+
+markers.common=c("SOX9","SOX5",
+                 "COL9A1","COL9A3",
+                 "MATN4","RUNX2")
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+# read in module genes
+markers.imm=c("SOX9","WWP2","BCL2","FGFRL1","COMP",
+              "ACAN","RSPO2","MGP","COL11A1","COL9A1",
+              "COL9A2","COL9A3","MATN1","MATN4",
+              "MATN3","SOX6","SOX5","FOXO1",
+              "BARX2","COL2A1")
+length(markers.imm)
+length(gene.info[gene.info$genename %in% markers.imm,"genename"])
+markers.imm[(!markers.imm %in% gene.info$genename)] #--> "COL9A2" "COL11A1" "COMP"
+markersid.imm=rownames(gene.info[gene.info$genename %in% markers.imm,])
+
+markers.red=read.table("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/bmc_fig6_redModule.txt",
+                       sep="\t",header = T);dim(markers.red)
+length(gene.info[rownames(gene.info) %in% markers.red$nodeName,"genename"])
+markers.red[(!markers.red$nodeName %in% rownames(gene.info)),]
+markersid.red=markers.red$nodeName
+```
+
+3 out of 20 gene missed from IMM module: COL9A2, COL11A1, COMP
+
+5 out of 46 gene missed from module red: COL9A2, HAPLN1L, ARSH, ENSGALG00000040226, ENSGALG00000030769
+
+
+## feature plot
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.width=12,fig.height=8}
+###############
+# panel 
+
+origin="nasal"
+
+#get scRNA data
+if(origin=="limb"){
+  i=1
+}else if(origin=="somite"){
+  i=2
+}else if(origin=="nasal"){
+  i=3
+}
+subset.rna=readRDS(my.files[i])
+meta.rna=readRDS(my.mfiles[i])
+subset.rna=AddMetaData(subset.rna,meta.rna[rownames(subset.rna@meta.data),])
+subset.rna@active.assay="RNA"
+
+#calculate module score
+subset.rna=AddModuleScore(subset.rna,assay = "RNA",seed=1234,
+                          features=list(markersid.imm),
+                          name="moduleIMM")
+
+subset.rna=AddModuleScore(subset.rna,assay = "RNA",seed=1234,
+                          features=list(markersid.red),
+                          name="moduleRED")
+
+p1=FeaturePlot(subset.rna,features = c("moduleIMM1","moduleRED1"),
+            reduction = "xtsne",order = TRUE,
+            max.cutoff = "q99") + theme(aspect.ratio=1) &
+  #scale_colour_gradientn(colours = c("gray90","gray80","yellow", "orange", "red1", "red2", "red3","red4"))
+  scale_colour_gradientn(colours = c("gray90","gray90","gray80","yellow", "orange", "red", "darkred", "darkred"))
+#color from Fabio: c("dodgerblue","dodgerblue4", "white", "red", "darkred")
+
+## rename gene
+tmp=GetAssayData(subset.rna,assay = "RNA",slot = "data")
+rownames(tmp)=gene.info[rownames(tmp),"genename"]
+subset.rna[['rename']]=CreateAssayObject(data=as.matrix(tmp))
+DefaultAssay(subset.rna)="rename"
+subset.rna=ScaleData(subset.rna,assay = "rename", features = markers.common)
+
+# plot
+Idents(subset.rna)=subset.rna$annotation_fine
+subset.rna[['module']]=CreateAssayObject(data=as.matrix(t(subset.rna@meta.data[,c("moduleIMM1","moduleRED1")])))
+#!! the percent expressed is NOT meaningful, as there are negative module values
+p2=DotPlot(subset.rna,assay = "module",features = c("moduleIMM1","moduleRED1"),
+        scale.min = 0, scale.max = 100,dot.scale=10) + 
+  scale_color_gradient(low = "lightgrey",high = "red") + coord_flip() +
+  theme(axis.text.x = element_text(angle = 90, size=10)) +
+  ggtitle(paste0(origin,": RNA data (non-corrected)"))
+p3=DotPlot(subset.rna,assay = "rename",features = rev(markers.common),
+           scale.min = 0, scale.max = 20,dot.scale=10) + 
+  scale_color_gradient(low = "lightgrey",high = "black") + coord_flip() +
+  theme(axis.text.x = element_text(angle = 90, size=10)) +
+  ggtitle(paste0(origin,": RNA data (non-corrected)"))
+
+p1;p2;p3
+
+
+pdf(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts/fig1/figure1_modulePlot_",origin,".pdf"),height = 6,width = 10)
+p1;p2;p3
+dev.off()
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.width=12,fig.height=8}
+###############
+# panel
+
+origin="somite"
+
+#get scRNA data
+if(origin=="limb"){
+  i=1
+}else if(origin=="somite"){
+  i=2
+}else if(origin=="nasal"){
+  i=3
+}
+subset.rna=readRDS(my.files[i])
+meta.rna=readRDS(my.mfiles[i])
+subset.rna=AddMetaData(subset.rna,meta.rna[rownames(subset.rna@meta.data),])
+subset.rna@active.assay="RNA"
+
+#calculate module score
+subset.rna=AddModuleScore(subset.rna,assay = "RNA",seed=1234,
+                          features=list(markersid.imm),
+                          name="moduleIMM")
+
+subset.rna=AddModuleScore(subset.rna,assay = "RNA",seed=1234,
+                          features=list(markersid.red),
+                          name="moduleRED")
+
+p1=FeaturePlot(subset.rna,features = c("moduleIMM1","moduleRED1"),
+            reduction = "xtsne",order = TRUE,
+            max.cutoff = "q99") + theme(aspect.ratio=1) &
+  scale_colour_gradientn(colours = c("gray90","gray90","gray80","yellow", "orange", "red", "darkred", "darkred"))
+#color from Fabio: c("dodgerblue","dodgerblue4", "white", "red", "darkred")
+
+## rename gene
+tmp=GetAssayData(subset.rna,assay = "RNA",slot = "data")
+rownames(tmp)=gene.info[rownames(tmp),"genename"]
+subset.rna[['rename']]=CreateAssayObject(data=as.matrix(tmp))
+DefaultAssay(subset.rna)="rename"
+subset.rna=ScaleData(subset.rna,assay = "rename", features = markers.common)
+
+# plot
+Idents(subset.rna)=subset.rna$annotation_fine
+subset.rna[['module']]=CreateAssayObject(data=as.matrix(t(subset.rna@meta.data[,c("moduleIMM1","moduleRED1")])))
+#!! the percent expressed is NOT meaningful, as there are negative module values
+p2=DotPlot(subset.rna,assay = "module",features = c("moduleIMM1","moduleRED1"),
+        scale.min = 0, scale.max = 100,dot.scale=10) + 
+  scale_color_gradient(low = "lightgrey",high = "red") + coord_flip() +
+  theme(axis.text.x = element_text(angle = 90, size=10)) +
+  ggtitle(paste0(origin,": RNA data (non-corrected)"))
+
+p3=DotPlot(subset.rna,assay = "rename",features = rev(markers.common),
+           scale.min = 0, scale.max = 20,dot.scale=10) + 
+  scale_color_gradient(low = "lightgrey",high = "black") + coord_flip() +
+  theme(axis.text.x = element_text(angle = 90, size=10)) +
+  ggtitle(paste0(origin,": RNA data (non-corrected)"))
+
+p1;p2;p3
+
+pdf(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts/fig1/figure1_modulePlot_",origin,".pdf"),height = 6,width = 10)
+p1;p2;p3
+dev.off()
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.width=12,fig.height=8}
+###############
+# panel 
+
+origin="limb"
+
+#get scRNA data
+if(origin=="limb"){
+  i=1
+}else if(origin=="somite"){
+  i=2
+}else if(origin=="nasal"){
+  i=3
+}
+subset.rna=readRDS(my.files[i])
+meta.rna=readRDS(my.mfiles[i])
+subset.rna=AddMetaData(subset.rna,meta.rna[rownames(subset.rna@meta.data),])
+subset.rna@active.assay="RNA"
+
+#calculate module score
+subset.rna=AddModuleScore(subset.rna,assay = "RNA",seed=1234,
+                          features=list(markersid.imm),
+                          name="moduleIMM")
+
+subset.rna=AddModuleScore(subset.rna,assay = "RNA",seed=1234,
+                          features=list(markersid.red),
+                          name="moduleRED")
+
+p1=FeaturePlot(subset.rna,features = c("moduleIMM1","moduleRED1"),
+            reduction = "xtsne",order = TRUE,
+            max.cutoff = "q99") + theme(aspect.ratio=1) &
+  scale_colour_gradientn(colours = c("gray90","gray90","gray80","yellow", "orange", "red", "darkred", "darkred"))
+#color from Fabio: c("dodgerblue","dodgerblue4", "white", "red", "darkred")
+
+## rename gene
+tmp=GetAssayData(subset.rna,assay = "RNA",slot = "data")
+rownames(tmp)=gene.info[rownames(tmp),"genename"]
+subset.rna[['rename']]=CreateAssayObject(data=as.matrix(tmp))
+DefaultAssay(subset.rna)="rename"
+subset.rna=ScaleData(subset.rna,assay = "rename", features = markers.common)
+
+# plot
+Idents(subset.rna)=subset.rna$annotation_fine
+subset.rna[['module']]=CreateAssayObject(data=as.matrix(t(subset.rna@meta.data[,c("moduleIMM1","moduleRED1")])))
+#!! the percent expressed is NOT meaningful, as there are negative module values
+p2=DotPlot(subset.rna,assay = "module",features = c("moduleIMM1","moduleRED1"),
+        scale.min = 0, scale.max = 100,dot.scale=10) + 
+  scale_color_gradient(low = "lightgrey",high = "red") + coord_flip() +
+  theme(axis.text.x = element_text(angle = 90, size=10)) +
+  ggtitle(paste0(origin,": RNA data (non-corrected)"))
+
+p3=DotPlot(subset.rna,assay = "rename",features = rev(markers.common),
+           scale.min = 0, scale.max = 20,dot.scale=10) + 
+  scale_color_gradient(low = "lightgrey",high = "black") + coord_flip() +
+  theme(axis.text.x = element_text(angle = 90, size=10)) +
+  ggtitle(paste0(origin,": RNA data (non-corrected)"))
+
+p1;p2;p3
+
+
+pdf(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts/fig1/figure1_modulePlot_",origin,".pdf"),height = 6,width = 10)
+p1;p2;p3
+dev.off()
+
+```
+
+## log
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+sessionInfo()
+```

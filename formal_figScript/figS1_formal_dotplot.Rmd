@@ -1,0 +1,231 @@
+---
+title: "figureS1_plot"
+output: 
+  html_document:
+    df_print: paged
+  html_notebook:
+editor_options:
+  chunk_output_type: inline
+---
+
+panel S1. C-E
+
+```{r setup, message=FALSE, warning=FALSE, echo=FALSE}
+# packages
+library(Seurat);library(ggplot2)
+library(dplyr);library(RColorBrewer)
+library(viridis);library(gridExtra)
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+# derived from code: Rscript/scRNA/forFigures/figureS1.R
+gene.info=read.table("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/ensembl97_geneinfo.txt",
+                     sep="\t",header = TRUE,row.names = 1,stringsAsFactors = FALSE)
+gene.info[gene.info$genename=="","genename"]=rownames(gene.info[gene.info$genename=="",])
+gene.info$genename=toupper(gene.info$genename)
+
+# scRNA data path
+rna_path <- "/scicore/home/tschoppp/GROUP/lab/Chris.shared/for.Menghan/"
+my.files=paste0(rna_path,c("forelimb_seurat_290420.rds","frontonasal_seurat_290420.rds","somites_seurat_290420.rds"))
+
+#add metadata
+meta=readRDS("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/clustering/meta_all.rds")
+
+grey=brewer.pal(n = 9, name = "Greys")
+colfunc <- colorRampPalette(c(grey[3],grey[7]))
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+#reorder celltype
+rlevels=list()
+
+#place to optimize: order of celltype
+origin="nasal"
+rlevels[[origin]]=c("cranialMesenchyme","CyclingCells","proliferatingNeurons","Neurons","NeuronalCells","Skin","Vessels","Blood")
+
+origin="somite"
+rlevels[[origin]]=c("Sclerotome","Dermomyotome","lateralPlateMesoderm","neuralTubeProgenitors","Neurons","neuralCrest","intermediateMesoderm","Skin","Vessels","Blood","mitochondrialRich")
+
+origin="limb"
+rlevels[[origin]]=c("Mesenchyme","skeletogenicCells","posteriorMesenchyme","CyclingCells","Muscle","Skin","Leukocytes","Blood")
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+my.data=list(); 
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.width=10}
+samples=c("nasal","somite","limb")
+n=1
+{
+  origin=samples[n]
+  if(origin=="limb"){
+    i=1
+  }else if(origin=="somite"){
+    i=3
+  }else if(origin=="nasal"){
+    i=2
+  }
+  
+  # read in data
+  my.data[[origin]] = readRDS(my.files[i]) #load in
+  my.meta=meta[[origin]]
+  my.data[[origin]] = AddMetaData(my.data[[origin]],my.meta[rownames(my.data[[origin]]@meta.data),])
+  Idents(my.data[[origin]])=my.data[[origin]]@meta.data$annotation_broad
+  Idents(my.data[[origin]])=factor(Idents(my.data[[origin]]),
+                                   levels=rlevels[[origin]])
+  
+  # switch to gene name
+  tmp=GetAssayData(my.data[[origin]],assay = "RNA",slot = "data")
+  rownames(tmp)=gene.info[rownames(tmp),"genename"]
+  my.data[[origin]][['rename']]=CreateAssayObject(data=as.matrix(tmp))
+  DefaultAssay(my.data[[origin]])="rename"
+  
+  # read in markers
+  my.markers=read.table(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts/figS1/scRNA_markers_FigS1_",origin,".txt"),header = T)
+  my.markers=my.markers[my.markers$name!="" & my.markers$keep=="Y",]
+  my.markers$name=toupper(my.markers$name)
+  my.markers$name[!(my.markers$name %in% gene.info$genename)]
+  my.markers$cluster=factor(my.markers$cluster,levels = rlevels[[origin]])
+  my.markers=my.markers[order(my.markers$cluster),]
+  my.markers=my.markers[!duplicated(my.markers$name),];dim(my.markers)
+  
+  # heatmap
+  my.data[[origin]]=ScaleData(my.data[[origin]],assay = "rename", features = my.markers$name)
+  
+  # dotplot
+  p1f= DotPlot(my.data[[origin]],assay = "rename",features = rev(my.markers$name),
+               scale.min = 0, scale.max = 100,dot.scale=5) + 
+    scale_color_gradient(low = "lightgrey",high = "black") +
+    coord_flip() +
+    theme(axis.text.x = element_text(angle = 90, size=10)) +
+    ggtitle(paste0(origin,": RNA data (non-corrected)"))
+  print(p1f)
+  
+  pdf(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts/figS1/figureS1_dotplot_",origin,".pdf"),
+      height = 8,width = 5)
+  p1f
+  dev.off()
+  
+}
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.width=10}
+n=2
+{
+  origin=samples[n]
+  if(origin=="limb"){
+    i=1
+  }else if(origin=="somite"){
+    i=3
+  }else if(origin=="nasal"){
+    i=2
+  }
+  
+  # read in data
+  my.data[[origin]] = readRDS(my.files[i]) #load in
+  my.meta=meta[[origin]]
+  my.data[[origin]] = AddMetaData(my.data[[origin]],my.meta[rownames(my.data[[origin]]@meta.data),])
+  Idents(my.data[[origin]])=my.data[[origin]]@meta.data$annotation_broad
+  Idents(my.data[[origin]])=factor(Idents(my.data[[origin]]),
+                                   levels=rlevels[[origin]])
+  
+  # switch to gene name
+  tmp=GetAssayData(my.data[[origin]],assay = "RNA",slot = "data")
+  rownames(tmp)=gene.info[rownames(tmp),"genename"]
+  my.data[[origin]][['rename']]=CreateAssayObject(data=as.matrix(tmp))
+  DefaultAssay(my.data[[origin]])="rename"
+  
+  # read in markers
+  my.markers=read.table(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts/figS1/scRNA_markers_FigS1_",origin,".txt"),header = T)
+  my.markers=my.markers[my.markers$name!="" & my.markers$keep=="Y",]
+  my.markers$name=toupper(my.markers$name)
+  my.markers$name[!(my.markers$name %in% gene.info$genename)]
+  my.markers$cluster=factor(my.markers$cluster,levels = rlevels[[origin]])
+  my.markers=my.markers[order(my.markers$cluster),]
+  my.markers=my.markers[!duplicated(my.markers$name),];dim(my.markers)
+  
+  # heatmap
+  my.data[[origin]]=ScaleData(my.data[[origin]],assay = "rename", features = my.markers$name)
+  
+  # dotplot
+  p1f= DotPlot(my.data[[origin]],assay = "rename",features = rev(my.markers$name),
+               scale.min = 0, scale.max = 100,dot.scale=5) + 
+    scale_color_gradient(low = "lightgrey",high = "black") +
+    coord_flip() +
+    theme(axis.text.x = element_text(angle = 90, size=10)) +
+    ggtitle(paste0(origin,": RNA data (non-corrected)"))
+  print(p1f)
+  
+  pdf(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts/figS1/figureS1_dotplot_",origin,".pdf"),
+      height = 8,width = 5)
+  p1f
+  dev.off()
+  
+}
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.width=10}
+n=3
+{
+  origin=samples[n]
+  if(origin=="limb"){
+    i=1
+  }else if(origin=="somite"){
+    i=3
+  }else if(origin=="nasal"){
+    i=2
+  }
+  
+  # read in data
+  my.data[[origin]] = readRDS(my.files[i]) #load in
+  my.meta=meta[[origin]]
+  my.data[[origin]] = AddMetaData(my.data[[origin]],my.meta[rownames(my.data[[origin]]@meta.data),])
+  Idents(my.data[[origin]])=my.data[[origin]]@meta.data$annotation_broad
+  Idents(my.data[[origin]])=factor(Idents(my.data[[origin]]),
+                                   levels=rlevels[[origin]])
+  
+  # switch to gene name
+  tmp=GetAssayData(my.data[[origin]],assay = "RNA",slot = "data")
+  rownames(tmp)=gene.info[rownames(tmp),"genename"]
+  my.data[[origin]][['rename']]=CreateAssayObject(data=as.matrix(tmp))
+  DefaultAssay(my.data[[origin]])="rename"
+  
+  # read in markers
+  my.markers=read.table(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts/figS1/scRNA_markers_FigS1_",origin,".txt"),header = T)
+  my.markers=my.markers[my.markers$name!="" & my.markers$keep=="Y",]
+  my.markers$name=toupper(my.markers$name)
+  my.markers$name[!(my.markers$name %in% gene.info$genename)]
+  my.markers$cluster=factor(my.markers$cluster,levels = rlevels[[origin]])
+  my.markers=my.markers[order(my.markers$cluster),]
+  my.markers=my.markers[!duplicated(my.markers$name),];dim(my.markers)
+  
+  # heatmap
+  my.data[[origin]]=ScaleData(my.data[[origin]],assay = "rename", features = my.markers$name)
+  
+  # dotplot
+  p1f= DotPlot(my.data[[origin]],assay = "rename",features = rev(my.markers$name),
+               scale.min = 0, scale.max = 100,dot.scale=5) + 
+    scale_color_gradient(low = "lightgrey",high = "black") +
+    coord_flip() +
+    theme(axis.text.x = element_text(angle = 90, size=10)) +
+    ggtitle(paste0(origin,": RNA data (non-corrected)"))
+  print(p1f)
+  
+  pdf(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts/figS1/figureS1_dotplot_",origin,".pdf"),
+      height = 8,width = 5)
+  p1f
+  dev.off()
+  
+}
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+sessionInfo()
+```

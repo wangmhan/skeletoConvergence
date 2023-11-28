@@ -1,0 +1,242 @@
+---
+title: "figure5_venn"
+output: 
+  html_document:
+    df_print: paged
+  html_notebook:
+editor_options:
+  chunk_output_type: inline
+---
+
+for panel D
+
+```{r setup, message=FALSE, warning=FALSE, echo=FALSE}
+# packages
+library(eulerr)
+library(RColorBrewer); library(dplyr)
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+# function
+#filter to keep significant highly correlated ones
+filter=function(p2g=data,pos=FALSE,cor=0.5,padj=0.05,varq=0.25){
+  p2g=p2g[!is.na(p2g$FDR) & abs(p2g$Correlation) > cor & p2g$FDR < padj & (p2g$VarQRNA > varq & p2g$VarQATAC > varq),]
+  if(pos){p2g=p2g[p2g$Correlation > 0,]}
+  p2g$trend="Pos"
+  p2g[p2g$Correlation < 0,"trend"]="Neg"
+  p2g$unique=paste0(p2g$geneName,",",p2g$peakName,",",p2g$trend)
+  p2g$gnamePKname=paste0(p2g$geneName,",",p2g$peakName)
+  print(table(p2g$trend))
+  return(p2g)
+}
+
+venn.p2g=function(p2g.sig=p2g.sig){
+  p2g.sum=NULL
+  for(i in 1:length(p2g.sig)){
+    p2g.sum=c(p2g.sum,p2g.sig[[i]]$unique)
+  }
+  p2g.sum=p2g.sum[!duplicated(p2g.sum)]
+  venn=matrix(rep(0,length(p2g.sum)*length(p2g.sig)),ncol = length(p2g.sig))
+  colnames(venn)=names(p2g.sig)
+  rownames(venn)=p2g.sum
+  for(i in 1:length(p2g.sig)){
+    venn[rownames(venn) %in% p2g.sig[[i]]$unique,i]=1
+  }
+  vennDiagram(venn)
+  return(venn)
+}
+
+venn.p2g.peaks=function(p2g.sig=p2g.sig){
+  p2g.sum=NULL
+  for(i in 1:length(p2g.sig)){
+    p2g.sum=c(p2g.sum,p2g.sig[[i]]$peakName)
+  }
+  p2g.sum=p2g.sum[!duplicated(p2g.sum)]
+  venn=matrix(rep(0,length(p2g.sum)*length(p2g.sig)),ncol = length(p2g.sig))
+  colnames(venn)=names(p2g.sig)
+  rownames(venn)=p2g.sum
+  for(i in 1:length(p2g.sig)){
+    venn[rownames(venn) %in% p2g.sig[[i]]$peakName,i]=1
+  }
+  vennDiagram(venn)
+  return(venn)
+}
+```
+
+## get p2g links
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+pos=FALSE;cor=0.5 
+p2g.all=list(); p2g.lns=list()
+padj=0.05
+
+## nasal
+p2g=list()
+p2g[["archr"]]=readRDS("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/peak2gene/nasal_mesenchyme_p2glinks_ArchR.rds")[["full"]]
+
+p2g.sig=p2g
+p2g.sig[["archr"]]=filter(p2g=p2g[["archr"]],pos = pos ,cor=cor,padj=padj,varq=0.25);dim(p2g.sig[["archr"]])
+p2g.sig$archr$peakName=gsub("_","-",p2g.sig$archr$peakName)
+p2g.lns[["nasal"]]=p2g.sig[["archr"]]
+p2g.all[["nasal"]]=filter(p2g=p2g[["archr"]],pos = pos ,cor=0,padj=1,varq=0.25)
+
+## somite
+p2g=list()
+p2g[["archr"]]=readRDS("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/peak2gene/somite_mesenchyme_p2glinks_ArchR.rds")[["full"]]
+
+p2g.sig=p2g
+p2g.sig[["archr"]]=filter(p2g=p2g[["archr"]],pos = pos ,cor=cor,padj=padj,varq=0.25);dim(p2g.sig[["archr"]])
+p2g.sig$archr$peakName=gsub("_","-",p2g.sig$archr$peakName)
+p2g.lns[["somite"]]=p2g.sig[["archr"]]
+p2g.all[["somite"]]=filter(p2g=p2g[["archr"]],pos = pos ,cor=0,padj=1,varq=0.25)
+
+## limb
+p2g=list()
+p2g[["archr"]]=readRDS("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/peak2gene/limb_mesenchyme_p2glinks_ArchR.rds")[["full"]]
+
+p2g.sig=p2g
+p2g.sig[["archr"]]=filter(p2g=p2g[["archr"]],pos = pos ,cor=cor,padj=padj,varq=0.25);dim(p2g.sig[["archr"]])
+p2g.sig$archr$peakName=gsub("_","-",p2g.sig$archr$peakName)
+p2g.lns[["limb"]]=p2g.sig[["archr"]]
+p2g.all[["limb"]]=filter(p2g=p2g[["archr"]],pos = pos ,cor=0,padj=1,varq=0.25)
+
+# remove several duplicated ones
+p2g.lns$nasal=p2g.lns$nasa[!duplicated(p2g.lns$nasal$unique),]
+p2g.lns$somite=p2g.lns$somite[!duplicated(p2g.lns$somite$unique),]
+p2g.lns$limb=p2g.lns$limb[!duplicated(p2g.lns$limb$unique),]
+
+```
+
+## venn diagram
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+combn=list(nasal=(p2g.lns$nasal$unique),
+                 somite=(p2g.lns$somite$unique),
+                 limb=(p2g.lns$limb$unique))
+plot(euler(combn), quantities = TRUE)
+
+pdf(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts/fig5/p2g_venn_absCutoff0.5.pdf"),width = 6,height = 5)
+plot(euler(combn), quantities = TRUE)
+dev.off()
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+combn.gname=list(nasal=unique(p2g.lns$nasal$geneName),
+                 somite=unique(p2g.lns$somite$geneName),
+                 limb=unique(p2g.lns$limb$geneName))
+plot(euler(combn.gname), quantities = TRUE)
+
+pdf(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts/fig5/p2g_venn_absCutoff0.5_gname.pdf"),width = 6,height = 5)
+plot(euler(combn.gname), quantities = TRUE)
+dev.off()
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+checked="geneName"
+#show the ones that are shared
+p2g.pairs=unique(c(p2g.lns$nasal[,checked],p2g.lns$somite[,checked],p2g.lns$limb[,checked]))
+venn.mtx=data.frame(nasal=rep(0,length(p2g.pairs)),
+                    somite=rep(0,length(p2g.pairs)),
+                    limb=rep(0,length(p2g.pairs)))
+rownames(venn.mtx)=p2g.pairs
+venn.mtx[rownames(venn.mtx) %in% p2g.lns$nasal[,checked],"nasal"]=1
+venn.mtx[rownames(venn.mtx) %in% p2g.lns$somite[,checked],"somite"]=1
+venn.mtx[rownames(venn.mtx) %in% p2g.lns$limb[,checked],"limb"]=1
+
+write.table(venn.mtx,"/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts/fig5/p2g_venn_absCutoff0.5_mtxGeneName.txt",sep = "\t",quote = F)
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+combn.pname=list(nasal=unique(p2g.lns$nasal$peakName),
+                 somite=unique(p2g.lns$somite$peakName),
+                 limb=unique(p2g.lns$limb$peakName))
+plot(euler(combn.pname), quantities = TRUE)
+
+pdf(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts/fig5/p2g_venn_absCutoff0.5_pname.pdf"),width = 6,height = 5)
+plot(euler(combn.pname), quantities = TRUE)
+dev.off()
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+checked="peakName"
+#show the ones that are shared
+p2g.pairs=unique(c(p2g.lns$nasal[,checked],p2g.lns$somite[,checked],p2g.lns$limb[,checked]))
+venn.mtx=data.frame(nasal=rep(0,length(p2g.pairs)),
+                    somite=rep(0,length(p2g.pairs)),
+                    limb=rep(0,length(p2g.pairs)))
+rownames(venn.mtx)=p2g.pairs
+venn.mtx[rownames(venn.mtx) %in% p2g.lns$nasal[,checked],"nasal"]=1
+venn.mtx[rownames(venn.mtx) %in% p2g.lns$somite[,checked],"somite"]=1
+venn.mtx[rownames(venn.mtx) %in% p2g.lns$limb[,checked],"limb"]=1
+
+venn.mtx$nasalUnique=""
+venn.mtx$somiteUnique=""
+venn.mtx$limbUnique=""
+for(i in 1:nrow(venn.mtx)){
+  tmp.peak=rownames(venn.mtx)[i]
+  tmp.n=paste(p2g.lns$nasal[p2g.lns$nasal$peakName==tmp.peak,"unique"],collapse = ";")
+  venn.mtx$nasalUnique[i]=tmp.n
+  tmp.s=paste(p2g.lns$somite[p2g.lns$somite$peakName==tmp.peak,"unique"],collapse = ";")
+  venn.mtx$somiteUnique[i]=tmp.s
+  tmp.l=paste(p2g.lns$limb[p2g.lns$limb$peakName==tmp.peak,"unique"],collapse = ";")
+  venn.mtx$limbUnique[i]=tmp.l
+}
+
+write.table(venn.mtx,"/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts/fig5/p2g_venn_absCutoff0.5_mtxPeakName.txt",sep = "\t",quote = F)
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+#show the ones that are shared
+p2g.pairs=unique(c(p2g.lns$nasal$unique,p2g.lns$somite$unique,p2g.lns$limb$unique))
+venn.mtx=data.frame(nasal=rep(0,length(p2g.pairs)),
+                    somite=rep(0,length(p2g.pairs)),
+                    limb=rep(0,length(p2g.pairs)))
+rownames(venn.mtx)=p2g.pairs
+venn.mtx[rownames(venn.mtx) %in% p2g.lns$nasal$unique,"nasal"]=1
+venn.mtx[rownames(venn.mtx) %in% p2g.lns$somite$unique,"somite"]=1
+venn.mtx[rownames(venn.mtx) %in% p2g.lns$limb$unique,"limb"]=1
+
+venn.mtx[venn.mtx$nasal==1 & venn.mtx$somite==1 & venn.mtx$limb==1,]
+venn.mtx[venn.mtx$nasal==0 & venn.mtx$somite==1 & venn.mtx$limb==1,]
+venn.mtx[venn.mtx$nasal==1 & venn.mtx$somite==0 & venn.mtx$limb==1,]
+venn.mtx[venn.mtx$nasal==1 & venn.mtx$somite==1 & venn.mtx$limb==0,]
+
+shared=rbind(venn.mtx[venn.mtx$nasal==1 & venn.mtx$somite==1 & venn.mtx$limb==1,],
+             venn.mtx[venn.mtx$nasal==0 & venn.mtx$somite==1 & venn.mtx$limb==1,],
+             venn.mtx[venn.mtx$nasal==1 & venn.mtx$somite==0 & venn.mtx$limb==1,],
+             venn.mtx[venn.mtx$nasal==1 & venn.mtx$somite==1 & venn.mtx$limb==0,])
+shared$gene=sapply(strsplit(rownames(shared),","),"[",1)
+shared$peak=sapply(strsplit(rownames(shared),","),"[",2)
+shared$trend=sapply(strsplit(rownames(shared),","),"[",3)
+length(unique(shared$gene)); table(shared$gene)[order(-table(shared$gene))][1:50]
+
+write.table(shared,"/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts/fig5/p2g_venn_absCutoff0.5_shared.txt",sep = "\t",quote = F)
+write.table(venn.mtx,"/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts/fig5/p2g_venn_absCutoff0.5_mtx.txt",sep = "\t",quote = F)
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+shared[shared$gene=="SOX9",]
+shared[shared$gene=="SOX5",]
+shared[shared$gene=="FOXP3",]
+shared[shared$gene=="COL9A1",]
+shared[shared$gene=="COL9A3",]
+shared[shared$gene=="COL5A1",]
+
+```
+
+## log
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+sessionInfo()
+```
+

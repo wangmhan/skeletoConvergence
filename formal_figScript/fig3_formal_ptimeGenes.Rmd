@@ -1,0 +1,233 @@
+---
+title: "temporally changed genes"
+output: 
+  html_document:
+    df_print: paged
+  html_notebook:
+editor_options:
+  chunk_output_type: inline
+---
+
+use the result from previous analysis, generate figures.
+
+```{r setup, message=FALSE, warning=FALSE, echo=FALSE}
+# packages
+library(RColorBrewer);library(reshape2)
+library(pheatmap);library(dplyr)
+library(ggplot2);library(viridis)
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+save_pheatmap_pdf <- function(x, filename, width=6, height=4) {
+   stopifnot(!missing(x))
+   stopifnot(!missing(filename))
+   pdf(filename, width=width, height=height)
+   grid::grid.newpage()
+   grid::grid.draw(x$gtable)
+   dev.off()
+}
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+#gene name info
+gene.info=read.table("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/ensembl97_geneinfo.txt",
+                     sep="\t",header = TRUE,row.names = 1,stringsAsFactors = FALSE)
+gene.info[gene.info$genename=="","genename"]=rownames(gene.info[gene.info$genename=="",])
+gene.info$genename=toupper(gene.info$genename)
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+# 10 bins or 40 bins
+extra="" #"" for 10 bins;"40bins_"
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+# DEGs: chondrocytes vs other Mesenchyme, L/N/S respectively
+# get the common ones
+degs.l=read.table("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/clustering/fig1_limbFine_degs_pval0.2pct0.01fd0.01.txt") #the stringent one has too few DEGs for overlap:minpct025_logfc025
+degs.l=degs.l[degs.l$cluster=="chondrocytes" & degs.l$avg_log2FC>0 & degs.l$p_val < 0.05,"name"]
+
+degs.n=read.table("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/clustering/fig1_nasalFine_degs_pval0.2pct0.01fd0.01.txt")
+degs.n=degs.n[degs.n$cluster=="chondrocytes" & degs.n$avg_log2FC>0 & degs.n$p_val < 0.05,"name"]
+
+degs.s=read.table("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/clustering/fig1_somiteFine_degs_pval0.2pct0.01fd0.01.txt")
+degs.s=degs.s[degs.s$cluster=="chondrocytes" & degs.s$avg_log2FC>0 & degs.s$p_val < 0.05,"name"]
+
+comn1=degs.l[degs.l %in% degs.n]; #comn1
+comn2=degs.l[degs.l %in% degs.s]; #comn2
+comn=comn1[comn1 %in% comn2]
+comn
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+## change to markers
+markers.gene=comn
+markers.gene[!(markers.gene %in% gene.info$genename)]
+#markers.gene=markers.gene[order(markers.gene)]
+```
+
+## nasal
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+origin="nasal"
+my.average=read.table(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/pseudotime/temporal_scrnaPtbinMatrix_",extra,origin,".txt"),sep = "\t")
+```
+
+### markers
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.width=6,fig.height=5}
+# plot side by side
+gene.selected=markers.gene
+dynamics.rna=my.average[gene.selected,]
+
+log=FALSE;scale = TRUE;smooth = F
+if(log){
+  # translate, then transform: log10(Y + 1 - min(Y))
+  dynamics.rna=log2(dynamics.rna+1)
+}
+# cubic smoothing spline
+if(smooth){
+  dynamics.rna <- t(apply(dynamics.rna,1,function(x){smooth.spline(x,df=3)$y}))
+}
+# scaled
+if(scale){
+  dynamics.rna=t(scale(t(dynamics.rna)))
+}
+
+dynamics.rna[is.na(dynamics.rna)]=0
+
+break3=seq(-2.5, 3, by=0.05)
+col3=colorRampPalette(c("white","grey80","black"))(length(break3))
+#col3=colorRampPalette(viridis(10))(length(break3))
+pt1.rna=pheatmap(
+  mat               = dynamics.rna,
+  border_color      = NA,
+  show_colnames     = TRUE, show_rownames     = TRUE,
+  cluster_rows=F, cluster_cols = FALSE, 
+  drop_levels       = TRUE,
+  fontsize_row = 8, fontsize_col = 3, silent = TRUE,
+  #annotation_row    = anno$row, annotation_colors = anno$color,
+  main              = paste0(origin,": gene expression dynamics"),
+  color = col3,
+  breaks = break3
+)
+plot.new(); print(pt1.rna)
+
+save_pheatmap_pdf(pt1.rna,paste0("~/figure_drafts/fig3_ptimeHeatmap_scrnaAll_N10_",origin,"_commonGenes.pdf"), width=4, height=4)
+
+```
+
+## somite
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+origin="somite"
+my.average=read.table(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/pseudotime/temporal_scrnaPtbinMatrix_",extra,origin,".txt"),sep = "\t")
+```
+
+### markers
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.width=6,fig.height=5}
+gene.selected=markers.gene
+dynamics.rna=my.average[gene.selected,]
+
+log=FALSE;scale = TRUE;smooth = F
+if(log){
+  # translate, then transform: log10(Y + 1 - min(Y))
+  dynamics.rna=log2(dynamics.rna+1)
+}
+# cubic smoothing spline
+if(smooth){
+  dynamics.rna <- t(apply(dynamics.rna,1,function(x){smooth.spline(x,df=3)$y}))
+}
+# scaled
+if(scale){
+  dynamics.rna=t(scale(t(dynamics.rna)))
+}
+
+dynamics.rna[is.na(dynamics.rna)]=0
+
+break3=seq(-2.5, 3, by=0.05)
+col3=colorRampPalette(c("white","grey80","black"))(length(break3))
+#col3=colorRampPalette(viridis(10))(length(break3))
+pt1.rna=pheatmap(
+  mat               = dynamics.rna,
+  border_color      = NA,
+  show_colnames     = TRUE, show_rownames     = TRUE,
+  cluster_rows=F, cluster_cols = FALSE, 
+  drop_levels       = TRUE,
+  fontsize_row = 8, fontsize_col = 3, silent = TRUE,
+  #annotation_row    = anno$row, annotation_colors = anno$color,
+  main              = paste0(origin,": gene expression dynamics"),
+  color = col3,
+  breaks = break3
+)
+plot.new(); print(pt1.rna)
+
+save_pheatmap_pdf(pt1.rna,paste0("~/figure_drafts/fig3_ptimeHeatmap_scrnaAll_N10_",origin,"_commonGenes.pdf"), width=4, height=4)
+
+```
+
+## limb
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+origin="limb"
+my.average=read.table(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/pseudotime/temporal_scrnaPtbinMatrix_",extra,origin,".txt"),sep = "\t")
+```
+
+### markers
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.width=6,fig.height=5}
+# plot side by side
+gene.selected=markers.gene
+dynamics.rna=my.average[gene.selected,]
+
+log=FALSE;scale = TRUE;smooth = FALSE
+if(log){
+  # translate, then transform: log10(Y + 1 - min(Y))
+  dynamics.rna=log2(dynamics.rna+1)
+}
+# cubic smoothing spline
+if(smooth){
+  dynamics.rna <- t(apply(dynamics.rna,1,function(x){smooth.spline(x,df=3)$y}))
+}
+# scaled
+if(scale){
+  dynamics.rna=t(scale(t(dynamics.rna)))
+}
+
+dynamics.rna[is.na(dynamics.rna)]=0
+
+break3=seq(-2.5, 3, by=0.05)
+col3=colorRampPalette(c("white","grey80","black"))(length(break3))
+#col3=colorRampPalette(viridis(10))(length(break3))
+pt1.rna=pheatmap(
+  mat               = dynamics.rna,
+  border_color      = NA,
+  show_colnames     = TRUE, show_rownames     = TRUE,
+  cluster_rows=F, cluster_cols = FALSE, 
+  drop_levels       = TRUE,
+  fontsize_row = 8, fontsize_col = 3, silent = TRUE,
+  #annotation_row    = anno$row, annotation_colors = anno$color,
+  main              = paste0(origin,": gene expression dynamics"),
+  color = col3,
+  breaks = break3
+)
+plot.new(); print(pt1.rna)
+
+save_pheatmap_pdf(pt1.rna,paste0("~/figure_drafts/fig3_ptimeHeatmap_scrnaAll_N10_",origin,"_commonGenes.pdf"), width=4, height=4)
+
+```
+
+## log
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+sessionInfo()
+```
+

@@ -1,0 +1,330 @@
+---
+title: "figure4_chondrocytesDiffAnalysis"
+output: 
+  html_document:
+    df_print: paged
+  html_notebook:
+editor_options:
+  chunk_output_type: inline
+---
+
+for panel C
+
+```{r setup, message=FALSE, warning=FALSE, echo=FALSE}
+# packages
+library(Seurat);library(Signac);library(ggplot2)
+library(dplyr);library(RColorBrewer)
+library(viridis);library(gridExtra)
+library(pheatmap)
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+save_pheatmap_pdf <- function(x, filename, width=6, height=4) {
+   stopifnot(!missing(x))
+   stopifnot(!missing(filename))
+   pdf(filename, width=width, height=height)
+   grid::grid.newpage()
+   grid::grid.draw(x$gtable)
+   dev.off()
+}
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+gene.info=read.table("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/ensembl97_geneinfo.txt", sep="\t",header = TRUE,row.names = 1,stringsAsFactors = FALSE)
+gene.info[gene.info$genename=="","genename"]=rownames(gene.info[gene.info$genename=="",])
+gene.info$genename=toupper(gene.info$genename)
+
+tf=read.table("/scicore/home/tschoppp/GROUP/references/genomes/TFs/Gallus_gallus_TF_AnimalTFDB3_edited.txt", sep = "\t", header = T)
+```
+
+## get differential motif activity between chondrocytes
+
+top 10, respectively
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+my.atac=readRDS("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/diffAnalysis/chondrocytes_motifMatrix.rds")
+my.atac@active.assay="chromvar"
+
+# as we don't need to expm1 the data, so put it in scale.data for calculation
+my.atac@assays$chromvar@scale.data=my.atac@assays$chromvar@data
+Idents(my.atac)=my.atac$origin
+avg.act=AverageExpression(my.atac,assays = "chromvar",slot = "scale.data")
+
+Idents(my.atac)=my.atac$origin
+table(my.atac$origin)
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+diffact.fine <- FindAllMarkers(
+  object = my.atac, #only.pos = TRUE,
+  mean.fxn = rowMeans,#logfc.threshold = 0.01,-->little changes
+  fc.name = "avg_diff"
+)
+diffact.fine=diffact.fine[diffact.fine$p_val_adj<0.05,]
+#write.table(diffact.fine,"/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/diffAnalysis/chondrocytes_diffMotifActivity.txt",sep = "\t",quote = F)
+```
+
+## origin-specific TFs (scATAC)
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+mf.anno=readRDS("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/motifEnrich/motifUnion_originConsist.rds")
+mfunion.used=rbind(mf.anno$nasal,mf.anno$somite,mf.anno$limb)
+mfunion.used$unique=paste0(mfunion.used$origin,"_",
+                           sapply(strsplit(mfunion.used$motifid,"-"),"[",1),"_",
+                           sapply(strsplit(mfunion.used$motifid,"-"),"[",2),"_",
+                           mfunion.used$tfname)
+
+diffact.fine=read.table("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/diffAnalysis/chondrocytes_diffMotifActivity.txt",sep = "\t")
+diffact.fine=diffact.fine[diffact.fine$avg_diff > 0,]
+table(diffact.fine$cluster)
+
+################
+## venn
+library(eulerr)
+#TF name: STAMP alignment & TF expression
+combn=list(nasal=diffact.fine[diffact.fine$cluster=="nasal","gene"],
+           somite=diffact.fine[diffact.fine$cluster=="somite","gene"],
+           limb=diffact.fine[diffact.fine$cluster=="limb","gene"])
+plot(euler(combn), quantities = TRUE)
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+# extract significant ones
+diffact.fine=diffact.fine[order(diffact.fine$cluster,-diffact.fine$avg_diff),]
+
+dim(diffact.fine);table(diffact.fine$cluster)
+length(unique(diffact.fine$gene))
+
+top.fine=diffact.fine
+
+#annotate top.fine by motif assignment
+top.fine$assignment=""
+for(i in 1:nrow(top.fine)){
+  tmp.cluster=as.character(top.fine$cluster[i])
+  tmp.motif=top.fine$gene[i]
+  tmp.assign=mfunion.used[mfunion.used$motifid==tmp.motif,"unique"]
+  if(length(tmp.assign)>1){
+    top.fine$assignment[i]=tmp.assign[1]
+    for(j in 1:(length(tmp.assign)-1)){
+      top.fine=rbind(top.fine,top.fine[i,])
+      top.fine$assignment[nrow(top.fine)]=tmp.assign[j+1]
+    }
+  }else if(length(tmp.assign)==1){
+    top.fine$assignment[i]=tmp.assign
+  }else{
+    next
+  }
+}
+top.fine=top.fine[top.fine$assignment!="",];table(top.fine$cluster)
+top.fine$mfgene=sapply(strsplit(top.fine$assignment,"_"),"[",4)
+top.fine$mforigin=sapply(strsplit(top.fine$assignment,"_"),"[",1)
+top.fine
+
+#write.table(top.fine,"/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/diffAnalysis/chondrocytes_diffMotifs.txt",sep = "\t",quote = F)
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.width=5,fig.height=10}
+top.fine=read.table("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/diffAnalysis/chondrocytes_diffMotifs.txt",sep = "\t")
+table(top.fine$cluster)
+
+################
+## heatmap
+top.fine=top.fine[order(top.fine$cluster,-top.fine$avg_diff),]
+
+markers.top=c(top.fine[top.fine$cluster=="nasal" & top.fine$mforigin=="N","assignment"][1:20],
+              top.fine[top.fine$cluster=="somite" & top.fine$mforigin=="S","assignment"][1:20],
+              top.fine[top.fine$cluster=="limb" & top.fine$mforigin=="L","assignment"][1:20])
+length(unique(markers.top))
+
+my.atac@assays$chromvar@scale.data=my.atac@assays$chromvar@data
+Idents(my.atac)=factor(my.atac$origin,levels = c("nasal","somite","limb"))
+avg.act=AverageExpression(my.atac,assays = "chromvar",slot = "scale.data")
+
+my.avgSelect=avg.act$chromvar[top.fine$gene,];dim(my.avgSelect)
+rownames(my.avgSelect)=top.fine$assignment
+my.avgMarkers=my.avgSelect[markers.top,]
+
+pheatmap(my.avgMarkers,color = viridis(100),
+         cluster_rows = F,cluster_cols = F)
+
+#scaled by row
+my.avgMarkers=t(scale(t(my.avgMarkers)))
+pheatmap(my.avgMarkers,color = viridis(100),
+         cluster_rows = F,cluster_cols = F)
+```
+
+## origin specific TFs (scRNA & scATAC)
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+de=read.table("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/diffAnalysis/chondrocytes_DEGs.txt",sep = "\t")
+de=de[de$avg_logFC>0,]
+
+top.fine=read.table("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/diffAnalysis/chondrocytes_diffMotifs.txt",sep = "\t")
+table(top.fine$cluster)
+
+################
+## overlap between scrna & scatac
+combn.n=list(scrna=de[de$origin=="nasal","name"],
+             scatac=top.fine[top.fine$cluster=="nasal" & top.fine$mforigin=="N","mfgene"])
+plot(euler(combn.n), quantities = TRUE)
+tmp1=de[de$origin=="nasal","name"]
+tmp2=top.fine[top.fine$cluster=="nasal" & top.fine$mforigin=="N","mfgene"]
+olp.n=tmp1[tmp1 %in% tmp2];olp.n
+
+combn.s=list(scrna=de[de$origin=="somite","name"],
+             scatac=top.fine[top.fine$cluster=="somite" & top.fine$mforigin=="S","mfgene"])
+plot(euler(combn.s), quantities = TRUE)
+tmp1=de[de$origin=="somite","name"]
+tmp2=top.fine[top.fine$cluster=="somite" & top.fine$mforigin=="S","mfgene"]
+olp.s=tmp1[tmp1 %in% tmp2];olp.s
+
+combn.l=list(scrna=de[de$origin=="limb","name"],
+             scatac=top.fine[top.fine$cluster=="limb" & top.fine$mforigin=="L","mfgene"])
+plot(euler(combn.l), quantities = TRUE)
+tmp1=de[de$origin=="limb","name"]
+tmp2=top.fine[top.fine$cluster=="limb" & top.fine$mforigin=="L","mfgene"]
+olp.l=tmp1[tmp1 %in% tmp2];olp.l
+```
+
+### add some more candidates in
+
+pick from diff motif OR DEGs
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+# try to get 10 candidates for nasal
+tmp1=degs[degs$origin=="nasal" & degs$tf=="Y","name"]
+tmp2=top.fine[top.fine$cluster=="nasal" & top.fine$mforigin=="N","mfgene"]
+
+print("DEGs")
+tmp1=tmp1[order(tmp1)];tmp1
+print("differential motif")
+tmp2=tmp2[order(tmp2)];tmp2
+
+tmp1[tmp1 %in% tmp2]
+
+#write.table(genes.diff,"/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/diffAnalysis/chondrocytes_genesDiffList.txt",sep = "\t",quote=F)
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+top.n=c("ALX1","FOXO6",
+        "SIX2","PAX3", 
+        "TFAP2A","GATA2")
+
+top.s=c("NKX3-2","MYC",
+        "TWIST1","ZEB2",
+        "TWIST2","MEIS2A.2") 
+
+top.l=c("HOXA11","HOXA9",
+        "HOXD13","LH-2A",
+        "HAND1","HOXA5",
+        "PBX3","BCL11A",
+        "MSX2","RUNX2",
+        "SOX8","HOXC6",
+        "TCF7L2","MECOM",
+        "DLX5")
+
+genes.diff=c(top.l,top.n,top.s);length(genes.diff)
+genes.diff[duplicated(genes.diff)]
+genes.diff
+```
+
+
+### plot
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.width=6,fig.height=10}
+################
+## plot of overlapped genes: scrna & scatac
+
+#top.atac.n=top.fine[top.fine$cluster=="nasal" & top.fine$mfgene %in% olp.n,];dim(top.atac.n)
+top.atac.n=mfunion.used[mfunion.used$tfname %in% top.n & mfunion.used$origin=="N",];dim(top.atac.n)
+top.atac.s=mfunion.used[mfunion.used$tfname %in% top.s & mfunion.used$origin=="S",];dim(top.atac.s)
+top.atac.l=mfunion.used[mfunion.used$tfname %in% top.l & mfunion.used$origin=="L",];dim(top.atac.l)
+top.atac=c(top.atac.n$motifid,
+           top.atac.s$motifid,top.atac.l$motifid)
+
+my.avgSelect=avg.act$chromvar[top.atac,];dim(my.avgSelect)
+rownames(my.avgSelect)=c(top.atac.n$unique,
+                         top.atac.s$unique,top.atac.l$unique)
+
+my.col=brewer.pal(n = 9, name ="Blues")
+col.motif=colorRampPalette(my.col[c(1,2,4,8,9)])(100)
+
+my.avgMarkers=my.avgSelect
+pheatmap(my.avgMarkers,color = col.motif,
+         cluster_rows = F,cluster_cols = F)
+
+#scaled by row
+my.avgMarkers=t(scale(t(my.avgMarkers)))
+p1=pheatmap(my.avgMarkers,color = col.motif,
+         cluster_rows = F,cluster_cols = F)
+plot.new();p1
+
+save_pheatmap_pdf(p1,"/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts/fig4/chondrocytes_originSpecificTF_scATAC.pdf",width = 6,height = 10)
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.width=6,fig.height=10}
+##############
+## scrna
+
+meta = paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/clustering/meta_",c("limb","nasal","somite"),".rds")
+my.meta=NULL
+for(i in 1:length(meta)){
+  meta.tmp=readRDS(meta[i])
+  my.meta=rbind(my.meta,meta.tmp)
+}
+
+my.files="integrate_seuratHVGscran_wholeGenesets.rds"
+my.path="/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/integration/"
+my.integrated=readRDS(paste0(my.path,my.files))
+
+my.integrated=AddMetaData(my.integrated,metadata = my.meta[rownames(my.integrated@meta.data),c("broad","annotation_broad","fine","annotation_fine")])
+Idents(my.integrated)=my.integrated$annotation_fine
+
+my.subset=subset(my.integrated,cells =rownames(my.integrated@meta.data[my.integrated@meta.data$annotation_fine %in% c("chondrocytes"),]))
+
+tmp=GetAssayData(my.subset,assay = "RNA",slot = "data")
+rownames(tmp)=gene.info[rownames(tmp),"genename"]
+my.subset[['rename']]=CreateAssayObject(data=as.matrix(tmp))
+DefaultAssay(my.subset)="rename"
+
+top.rna=c(top.atac.n$tfname,
+           top.atac.s$tfname,top.atac.l$tfname)
+
+# dotplot
+Idents(my.subset)=factor(my.subset$origin, levels = c("nasal","somite","limb"))
+my.subset=ScaleData(my.subset,assay = "rename", features = top.rna)
+
+col.rna=colorRampPalette(c("white","grey80","black"))(100)
+p4= DotPlot(my.subset,assay = "rename",features = rev(top.rna),dot.scale = 10,scale.max = 20) + 
+  coord_flip() + 
+  scale_colour_gradient2(low = "white",mid = "grey80",high = "black") +
+  theme(text = element_text(size=15))
+p4
+pdf("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts/fig4/chondrocytes_originSpecificTF_scRNA_dotplot.pdf",width = 6,height = 10)
+p4
+dev.off()
+
+mtx=matrix(p4$data$avg.exp.scaled,nrow=27,byrow = F)
+colnames(mtx)=c("nasal","somite","limb")
+rownames(mtx)=levels(p4$data$features.plot)
+mtx=mtx[27:1,]
+
+col.rna=colorRampPalette(c("white","grey80","black"))(100)
+p0=pheatmap(mtx,color = col.rna,
+         cluster_rows = F,cluster_cols = F)
+plot.new();p0
+
+save_pheatmap_pdf(p0,"/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts/fig4/chondrocytes_originSpecificTF_scRNA.pdf",width = 6,height = 10)
+```
+
+## log
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+sessionInfo()
+```
+

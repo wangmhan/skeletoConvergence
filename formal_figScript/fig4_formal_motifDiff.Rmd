@@ -1,0 +1,446 @@
+---
+title: "scATAC_diffAnalysis"
+output: 
+  html_document:
+    df_print: paged
+  html_notebook:
+editor_options:
+  chunk_output_type: inline
+---
+ 
+for panel B
+
+```{r setup, message=FALSE, warning=FALSE, echo=FALSE}
+library(Seurat); library(Signac);library(ggplot2)
+library(reshape2); library(dplyr); library(plyr)
+library(TFBSTools); library(RColorBrewer)
+library(pheatmap);library(viridisLite)
+
+set.seed(1234)
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+save_pheatmap_pdf <- function(x, filename, width=6, height=4) {
+   stopifnot(!missing(x))
+   stopifnot(!missing(filename))
+   pdf(filename, width=width, height=height)
+   grid::grid.newpage()
+   grid::grid.draw(x$gtable)
+   dev.off()
+}
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+#reorder celltype
+subalevels=list()
+origin="nasal"
+subalevels[[origin]]=c("neuralcrestDerivedMesenchyme","mesenchymeActiveCell","amb_periocularMesenchyme","eyeConnectiveTissue","chondrocytes")
+origin="somite"
+subalevels[[origin]]=c("somite2","somite1","amb_somite","chondrocytes")
+origin="limb"
+subalevels[[origin]]=c("WNT5AMesenchyme","anteriorMesenchyme","mesenchymeORnsConnectiveTissue","amb_mesenchymeORnsConnectiveTissue","SHOX2Mesenchyme","lateChondrocytes","chondrocytes")
+
+```
+
+## read in motif set
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+mf2tfnames.all=readRDS(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/motifEnrich/all_denovoMotifs_mf2tfnames.rds"))
+
+tfs=read.table("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/Gallus_gallus_TF_AnimalTFDB3_edited.txt",sep="\t",header = TRUE,stringsAsFactors = FALSE)
+tfs$Symbol=toupper(tfs$Symbol)
+
+mf.all=readRDS(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/motifEnrich/LNS_denovoMotifs_assigned.rds"))
+names(mf.all)=gsub("limb\\.L\\.","",names(mf.all))
+names(mf.all)=gsub("nasal\\.N\\.","",names(mf.all))
+names(mf.all)=gsub("somite\\.S\\.","",names(mf.all))
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+#with pseudotime correction, without conflict among origins.
+mf.anno=readRDS("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/motifEnrich/motifUnion_originConsist.rds")
+mfunion.select=rbind(mf.anno$nasal,mf.anno$somite,mf.anno$limb)
+mfunion.select$unique=paste0(mfunion.select$origin,"_",
+                           sapply(strsplit(mfunion.select$motifid,"-"),"[",1),"_",
+                           sapply(strsplit(mfunion.select$motifid,"-"),"[",2),"_",
+                           mfunion.select$tfname)
+
+mfunion.select$mfnew.unique=""
+for(i in 1:nrow(mfunion.select)){
+  tmp.id=mfunion.select$motifid[i]
+  mfunion.select$mfnew.unique[i]=mf2tfnames.all$overall[mf2tfnames.all$overall$motifid==tmp.id,"mfnew.unique"]
+}
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+# generate motif union for each motif set
+mfunion.winpt.woutconf=mfunion.select
+
+#keep the same style
+mfunion.winpt.woutconf$mfnew=mfunion.winpt.woutconf$unique
+
+
+# check duplicated
+dim(mfunion.winpt.woutconf[duplicated(mfunion.winpt.woutconf$mfnew),])
+rownames(mfunion.winpt.woutconf)=mfunion.winpt.woutconf$mfnew
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+# color palette
+my.col=brewer.pal(n = 9, name ="Blues")
+break3=seq(-1.5, 1.8, by=0.025)
+col3=colorRampPalette(my.col[c(1,2,4,8,9)])(length(break3))
+
+```
+
+## limb
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+samples="limb"
+
+subset.atac=readRDS(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/integration/",samples,"_atac_intgtFine010721_activity.rds"))
+my.meta=readRDS(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/integration/",samples,"_atac_integrated010721_meta.rds"))
+subset.atac=AddMetaData(subset.atac,metadata = my.meta[rownames(subset.atac@meta.data),c("broad","annotation_broad","fine","annotation_fine")],col.name = c("broad","annotation_broad","fine","annotation_fine"))
+
+#read in chromvar motif activity
+chromvar.mtx=read.table(gzfile(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/motifEnrich/",samples,"_chromvarDenovo-LNSmotifs.txt.gz")), sep = "\t")
+colnames(chromvar.mtx)=gsub("\\.1","-1",colnames(chromvar.mtx))
+rownames(chromvar.mtx)=substr(rownames(chromvar.mtx),1,20)
+rownames(chromvar.mtx)=gsub("sub-","sub",rownames(chromvar.mtx))
+chromvar.mtx=as.matrix(chromvar.mtx)
+subset.atac@active.assay="activity"
+subset.atac[["chromvar"]]=CreateAssayObject(data=chromvar.mtx[,colnames(subset.atac)])
+
+Idents(subset.atac)=subset.atac$annotation_fine
+# as we don't need to expm1 the data, so put it in scale.data for calculation
+subset.atac@assays$chromvar@scale.data=subset.atac@assays$chromvar@data
+avg.act=AverageExpression(subset.atac,assays = "chromvar",slot = "scale.data")[["chromvar"]]
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.height=10}
+diffact.fine=read.table(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/motifEnrich/diffact_motifID_fcthres001_",samples,".txt"),sep = "\t")
+###################
+## motif set:mfunion.winpt.woutconf
+mfunion.used=mfunion.winpt.woutconf
+# keep the remain ones based on motif set
+diffact.select=diffact.fine[diffact.fine$gene %in% mfunion.used$motifid,]
+print(paste0("the number of differential motifs (before TF annotation): ",nrow(diffact.fine)))
+print(paste0("the number of differential motifs (after TF annotation): ",nrow(diffact.select)))
+
+diffact.select=diffact.select[grepl("^L_",diffact.select$motifAnno.withPseutodime.consist),];dim(diffact.select)
+# get the top ones
+top.fine=as.data.frame(diffact.select %>% group_by(cluster) %>% top_n(20, avg_diff));table(top.fine$cluster)
+top.fine.mf=NULL;top.fine.cls=NULL
+for(i in 1:nrow(top.fine)){
+  tmp.mfid=top.fine$gene[i]
+  tmp.mf=mfunion.used[mfunion.used$motifid %in% tmp.mfid,"mfnew"]
+  tmp.cls=as.character(top.fine$cluster[i])
+  top.fine.mf=c(top.fine.mf,tmp.mf)
+  top.fine.cls=c(top.fine.cls,rep(tmp.cls,length(tmp.mf)))
+}
+top.used=data.frame(mfnew=top.fine.mf,cluster=top.fine.cls);table(top.used$cluster)
+top.used$cluster=factor(top.used$cluster,levels = subalevels[[samples]])
+top.used=top.used[order(top.used$cluster),]
+top.used=top.used[!duplicated(top.used$mfnew),];table(top.used$cluster)
+top.5=NULL
+for(i in 1:length(levels(top.used$cluster))){
+  top.5=rbind(top.5,top.used[top.used$cluster==levels(top.used$cluster)[i],][1:5,])
+};table(top.5$cluster)
+
+#rename avg.act
+avg.used=avg.act[mfunion.used$motifid,]
+rownames(avg.used)=mfunion.used$mfnew
+my.avgSelect=avg.used[top.5$mfnew,]
+
+#scaled by row
+my.avgSelect=t(scale(t(my.avgSelect)))
+quantile(my.avgSelect)
+
+rownames(my.avgSelect)=sapply(strsplit(rownames(my.avgSelect),"_"),"[",4)
+plot.new()
+p1=pheatmap(my.avgSelect[,subalevels[[samples]]],color = col3,breaks = break3,cluster_rows = F,cluster_cols = F)
+print(p1)
+
+save_pheatmap_pdf(p1,paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts/fig4/diffMotifs_heatmapTop5_",samples,".pdf"), width=5, height=10)
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.width=5,fig.height=20}
+diffact.fine=read.table(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/motifEnrich/diffact_motifID_fcthres001_",samples,".txt"),sep = "\t")
+
+# regardless motif origin
+diffact.select=diffact.fine[diffact.fine$gene %in% mfunion.used$motifid,]
+top.fine=as.data.frame(diffact.select %>% group_by(cluster) %>% top_n(20, avg_diff));table(top.fine$cluster)
+top.fine.mf=NULL;top.fine.cls=NULL
+for(i in 1:nrow(top.fine)){
+  tmp.mfid=top.fine$gene[i]
+  tmp.mf=mfunion.used[mfunion.used$motifid %in% tmp.mfid,"mfnew"]
+  tmp.cls=as.character(top.fine$cluster[i])
+  top.fine.mf=c(top.fine.mf,tmp.mf)
+  top.fine.cls=c(top.fine.cls,rep(tmp.cls,length(tmp.mf)))
+}
+top.used=data.frame(mfnew=top.fine.mf,cluster=top.fine.cls);table(top.used$cluster)
+top.used$cluster=factor(top.used$cluster,levels = subalevels[[samples]])
+top.used=top.used[order(top.used$cluster),]
+
+#rename avg.act
+avg.used=avg.act[mfunion.used$motifid,]
+rownames(avg.used)=mfunion.used$mfnew
+my.avgSelect=avg.used[top.used$mfnew,]
+
+#scaled by row
+my.avgSelect=t(scale(t(my.avgSelect)))
+quantile(my.avgSelect)
+
+plot.new()
+p1=pheatmap(my.avgSelect[,subalevels[[samples]]],color = col3,breaks = break3,cluster_rows = F,cluster_cols = F)
+p1
+
+save_pheatmap_pdf(p1,paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts/fig4/diffMotifs_heatmapTop20_",samples,".pdf"), width=6, height=25)
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+
+```
+
+## nasal
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+samples="nasal"
+
+subset.atac=readRDS(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/integration/",samples,"_atac_intgtFine010721_activity.rds"))
+my.meta=readRDS(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/integration/",samples,"_atac_integrated010721_meta.rds"))
+subset.atac=AddMetaData(subset.atac,metadata = my.meta[rownames(subset.atac@meta.data),c("broad","annotation_broad","fine","annotation_fine")],col.name = c("broad","annotation_broad","fine","annotation_fine"))
+
+#read in chromvar motif activity
+chromvar.mtx=read.table(gzfile(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/motifEnrich/",samples,"_chromvarDenovo-LNSmotifs.txt.gz")), sep = "\t")
+colnames(chromvar.mtx)=gsub("\\.1","-1",colnames(chromvar.mtx))
+rownames(chromvar.mtx)=substr(rownames(chromvar.mtx),1,20)
+rownames(chromvar.mtx)=gsub("sub-","sub",rownames(chromvar.mtx))
+chromvar.mtx=as.matrix(chromvar.mtx)
+subset.atac@active.assay="activity"
+subset.atac[["chromvar"]]=CreateAssayObject(data=chromvar.mtx[,colnames(subset.atac)])
+
+Idents(subset.atac)=subset.atac$annotation_fine
+# as we don't need to expm1 the data, so put it in scale.data for calculation
+subset.atac@assays$chromvar@scale.data=subset.atac@assays$chromvar@data
+avg.act=AverageExpression(subset.atac,assays = "chromvar",slot = "scale.data")[["chromvar"]]
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.height=10}
+diffact.fine=read.table(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/motifEnrich/diffact_motifID_fcthres001_",samples,".txt"),sep = "\t")
+###################
+## motif set:mfunion.winpt.woutconf
+mfunion.used=mfunion.winpt.woutconf
+# keep the remain ones based on motif set
+diffact.select=diffact.fine[diffact.fine$gene %in% mfunion.used$motifid,]
+print(paste0("the number of differential motifs (before TF annotation): ",nrow(diffact.fine)))
+print(paste0("the number of differential motifs (after TF annotation): ",nrow(diffact.select)))
+
+diffact.select=diffact.select[grepl("^N_",diffact.select$motifAnno.withPseutodime.consist),];dim(diffact.select)
+# get the top ones
+top.fine=as.data.frame(diffact.select %>% group_by(cluster) %>% top_n(20, avg_diff));table(top.fine$cluster)
+top.fine.mf=NULL;top.fine.cls=NULL
+for(i in 1:nrow(top.fine)){
+  tmp.mfid=top.fine$gene[i]
+  tmp.mf=mfunion.used[mfunion.used$motifid %in% tmp.mfid,"mfnew"]
+  tmp.cls=as.character(top.fine$cluster[i])
+  top.fine.mf=c(top.fine.mf,tmp.mf)
+  top.fine.cls=c(top.fine.cls,rep(tmp.cls,length(tmp.mf)))
+}
+top.used=data.frame(mfnew=top.fine.mf,cluster=top.fine.cls);table(top.used$cluster)
+top.used$cluster=factor(top.used$cluster,levels = subalevels[[samples]])
+top.used=top.used[order(top.used$cluster),]
+top.used=top.used[!duplicated(top.used$mfnew),];table(top.used$cluster)
+top.5=NULL
+for(i in 1:length(levels(top.used$cluster))){
+  top.5=rbind(top.5,top.used[top.used$cluster==levels(top.used$cluster)[i],][1:5,])
+};table(top.5$cluster)
+
+#rename avg.act
+avg.used=avg.act[mfunion.used$motifid,]
+rownames(avg.used)=mfunion.used$mfnew
+my.avgSelect=avg.used[top.5$mfnew,]
+
+#scaled by row
+my.avgSelect=t(scale(t(my.avgSelect)))
+quantile(my.avgSelect)
+
+rownames(my.avgSelect)=sapply(strsplit(rownames(my.avgSelect),"_"),"[",4)
+plot.new()
+p1=pheatmap(my.avgSelect[,subalevels[[samples]]],color = col3,breaks = break3,cluster_rows = F,cluster_cols = F)
+print(p1)
+
+save_pheatmap_pdf(p1,paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts/fig4/diffMotifs_heatmapTop5_",samples,".pdf"), width=5, height=10)
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.width=5,fig.height=20}
+diffact.fine=read.table(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/motifEnrich/diffact_motifID_fcthres001_",samples,".txt"),sep = "\t")
+
+# regardless motif origin
+diffact.select=diffact.fine[diffact.fine$gene %in% mfunion.used$motifid,]
+top.fine=as.data.frame(diffact.select %>% group_by(cluster) %>% top_n(20, avg_diff));table(top.fine$cluster)
+top.fine.mf=NULL;top.fine.cls=NULL
+for(i in 1:nrow(top.fine)){
+  tmp.mfid=top.fine$gene[i]
+  tmp.mf=mfunion.used[mfunion.used$motifid %in% tmp.mfid,"mfnew"]
+  tmp.cls=as.character(top.fine$cluster[i])
+  top.fine.mf=c(top.fine.mf,tmp.mf)
+  top.fine.cls=c(top.fine.cls,rep(tmp.cls,length(tmp.mf)))
+}
+top.used=data.frame(mfnew=top.fine.mf,cluster=top.fine.cls);table(top.used$cluster)
+top.used$cluster=factor(top.used$cluster,levels = subalevels[[samples]])
+top.used=top.used[order(top.used$cluster),]
+
+#rename avg.act
+avg.used=avg.act[mfunion.used$motifid,]
+rownames(avg.used)=mfunion.used$mfnew
+my.avgSelect=avg.used[top.used$mfnew,]
+
+#scaled by row
+my.avgSelect=t(scale(t(my.avgSelect)))
+quantile(my.avgSelect)
+
+plot.new()
+p1=pheatmap(my.avgSelect[,subalevels[[samples]]],color = col3,breaks = break3,cluster_rows = F,cluster_cols = F)
+p1
+
+save_pheatmap_pdf(p1,paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts/fig4/diffMotifs_heatmapTop20_",samples,".pdf"), width=6, height=25)
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+
+```
+
+## somite
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+samples="somite"
+
+subset.atac=readRDS(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/integration/",samples,"_atac_intgtFine010721_activity.rds"))
+my.meta=readRDS(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/integration/",samples,"_atac_integrated010721_meta.rds"))
+subset.atac=AddMetaData(subset.atac,metadata = my.meta[rownames(subset.atac@meta.data),c("broad","annotation_broad","fine","annotation_fine")],col.name = c("broad","annotation_broad","fine","annotation_fine"))
+
+#read in chromvar motif activity
+chromvar.mtx=read.table(gzfile(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/motifEnrich/",samples,"_chromvarDenovo-LNSmotifs.txt.gz")), sep = "\t")
+colnames(chromvar.mtx)=gsub("\\.1","-1",colnames(chromvar.mtx))
+rownames(chromvar.mtx)=substr(rownames(chromvar.mtx),1,20)
+rownames(chromvar.mtx)=gsub("sub-","sub",rownames(chromvar.mtx))
+chromvar.mtx=as.matrix(chromvar.mtx)
+subset.atac@active.assay="activity"
+subset.atac[["chromvar"]]=CreateAssayObject(data=chromvar.mtx[,colnames(subset.atac)])
+
+Idents(subset.atac)=subset.atac$annotation_fine
+# as we don't need to expm1 the data, so put it in scale.data for calculation
+subset.atac@assays$chromvar@scale.data=subset.atac@assays$chromvar@data
+avg.act=AverageExpression(subset.atac,assays = "chromvar",slot = "scale.data")[["chromvar"]]
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.height=10}
+diffact.fine=read.table(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/motifEnrich/diffact_motifID_fcthres001_",samples,".txt"),sep = "\t")
+###################
+## motif set:mfunion.winpt.woutconf
+mfunion.used=mfunion.winpt.woutconf
+# keep the remain ones based on motif set
+diffact.select=diffact.fine[diffact.fine$gene %in% mfunion.used$motifid,]
+print(paste0("the number of differential motifs (before TF annotation): ",nrow(diffact.fine)))
+print(paste0("the number of differential motifs (after TF annotation): ",nrow(diffact.select)))
+
+diffact.select=diffact.select[grepl("^S_",diffact.select$motifAnno.withPseutodime.consist),];dim(diffact.select)
+# get the top ones
+top.fine=as.data.frame(diffact.select %>% group_by(cluster) %>% top_n(20, avg_diff));table(top.fine$cluster)
+top.fine.mf=NULL;top.fine.cls=NULL
+for(i in 1:nrow(top.fine)){
+  tmp.mfid=top.fine$gene[i]
+  tmp.mf=mfunion.used[mfunion.used$motifid %in% tmp.mfid,"mfnew"]
+  tmp.cls=as.character(top.fine$cluster[i])
+  top.fine.mf=c(top.fine.mf,tmp.mf)
+  top.fine.cls=c(top.fine.cls,rep(tmp.cls,length(tmp.mf)))
+}
+top.used=data.frame(mfnew=top.fine.mf,cluster=top.fine.cls);table(top.used$cluster)
+top.used$cluster=factor(top.used$cluster,levels = subalevels[[samples]])
+top.used=top.used[order(top.used$cluster),]
+top.used=top.used[!duplicated(top.used$mfnew),];table(top.used$cluster)
+top.5=NULL
+for(i in 1:length(levels(top.used$cluster))){
+  top.5=rbind(top.5,top.used[top.used$cluster==levels(top.used$cluster)[i],][1:5,])
+};table(top.5$cluster)
+
+#rename avg.act
+avg.used=avg.act[mfunion.used$motifid,]
+rownames(avg.used)=mfunion.used$mfnew
+my.avgSelect=avg.used[top.5$mfnew,]
+
+#scaled by row
+my.avgSelect=t(scale(t(my.avgSelect)))
+quantile(my.avgSelect)
+
+rownames(my.avgSelect)=sapply(strsplit(rownames(my.avgSelect),"_"),"[",4)
+plot.new()
+p1=pheatmap(my.avgSelect[,subalevels[[samples]]],color = col3,breaks = break3,cluster_rows = F,cluster_cols = F)
+print(p1)
+
+save_pheatmap_pdf(p1,paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts/fig4/diffMotifs_heatmapTop5_",samples,".pdf"), width=5, height=10)
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.width=5,fig.height=20}
+diffact.fine=read.table(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/motifEnrich/diffact_motifID_fcthres001_",samples,".txt"),sep = "\t")
+
+# regardless motif origin
+diffact.select=diffact.fine[diffact.fine$gene %in% mfunion.used$motifid,]
+top.fine=as.data.frame(diffact.select %>% group_by(cluster) %>% top_n(20, avg_diff));table(top.fine$cluster)
+top.fine.mf=NULL;top.fine.cls=NULL
+for(i in 1:nrow(top.fine)){
+  tmp.mfid=top.fine$gene[i]
+  tmp.mf=mfunion.used[mfunion.used$motifid %in% tmp.mfid,"mfnew"]
+  tmp.cls=as.character(top.fine$cluster[i])
+  top.fine.mf=c(top.fine.mf,tmp.mf)
+  top.fine.cls=c(top.fine.cls,rep(tmp.cls,length(tmp.mf)))
+}
+top.used=data.frame(mfnew=top.fine.mf,cluster=top.fine.cls);table(top.used$cluster)
+top.used$cluster=factor(top.used$cluster,levels = subalevels[[samples]])
+top.used=top.used[order(top.used$cluster),]
+
+#rename avg.act
+avg.used=avg.act[mfunion.used$motifid,]
+rownames(avg.used)=mfunion.used$mfnew
+my.avgSelect=avg.used[top.used$mfnew,]
+
+#scaled by row
+my.avgSelect=t(scale(t(my.avgSelect)))
+quantile(my.avgSelect)
+
+plot.new()
+p1=pheatmap(my.avgSelect[,subalevels[[samples]]],color = col3,breaks = break3,cluster_rows = F,cluster_cols = F)
+p1
+
+save_pheatmap_pdf(p1,paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts/fig4/diffMotifs_heatmapTop20_",samples,".pdf"), width=6, height=25)
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+
+```
+
+## log
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+sessionInfo()
+```
+
+
+
+

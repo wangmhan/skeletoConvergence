@@ -1,0 +1,399 @@
+---
+title: "scRNA_convergence"
+output: 
+  html_document:
+    df_print: paged
+  html_notebook:
+editor_options:
+  chunk_output_type: inline
+---
+
+for panel A-B
+
+```{r setup, message=FALSE, warning=FALSE, echo=FALSE}
+library(Seurat)
+library(pheatmap)
+library("viridis");library(ggplot2)
+library(dplyr); library(scales)
+
+source("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/colors/limbcolors.R")
+source("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/colors/nasalcolors.R")
+source("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/colors/somitecolors.R")
+my.cols = c(limb.colors(3),nasal.colors(3), somite.colors(3))
+
+my.origins=c("limb","nasal","somite")
+my.samplenames = c("L21", "L24", "L27", "N15", "N18", "N22", "S12", "S15", "S20")
+
+gene.info=read.table("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/ensembl97_geneinfo.txt", sep="\t",header = TRUE,row.names = 1,stringsAsFactors = FALSE)
+gene.info[gene.info$genename=="","genename"]=rownames(gene.info[gene.info$genename=="",])
+gene.info$genename=toupper(gene.info$genename)
+
+my.W = read.table("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/ensembl97_wgenes.txt",sep="\t",header = TRUE,row.names = 1,stringsAsFactors = FALSE)
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+##function
+pairwise.cor=function(data=my.average,method="pearson"){
+  avg.dist=matrix(ncol = ncol(data), nrow = ncol(data))
+  for(i in 1:ncol(data)){
+    x=data[,i]
+    for(j in 1:ncol(data)){
+      y=data[,j]
+      tmp=cor.test(x,y,method=method)
+      avg.dist[i,j]=tmp$estimate
+    }
+  }
+  colnames(avg.dist)=colnames(data);rownames(avg.dist)=colnames(data)
+  return(avg.dist)
+}
+
+pheatmap.anno=function(data=my.correlation,order=ctype.order,color.origin="",color.ctype=""){
+  #get annotation
+  #annorow=data.frame(
+  #  origin=sapply(strsplit(colnames(data),"_"), `[`, 1),
+  #  celltype=sapply(strsplit(colnames(data),"_"), `[`, 2)
+  #)
+  annorow=data.frame(
+    origin=sapply(strsplit(colnames(data),"_"), `[`, 1)
+  )
+  rownames(annorow)=colnames(data)
+  #substr origin
+  annorow$origin=toupper(substr(annorow$origin,1,1))
+  annorow$origin=factor(annorow$origin,levels = c("L","N","S"))
+  #order cell type
+  #annorow$celltype=factor(annorow$celltype,levels = order)
+  #annorow$celltype=droplevels(annorow$celltype)
+  #set color
+  if(color.origin==""){
+    color.origin=c("#EDB536","#CC1D77","#258FFC") #limb.colors(1),nasal.colors(1),somite.colors(1)
+    names(color.origin)=levels(annorow$origin)
+  }
+  #if(color.ctype==""){
+  #  color.ctype=hue_pal()(length(unique(annorow$celltype)))
+  #  names(color.ctype)=levels(annorow$celltype)
+  #}
+  #annocolor=list(origin=color.origin,celltype=color.ctype)
+  annocolor=list(origin=color.origin)
+  #return
+  anno=list()
+  anno$row=annorow
+  anno$color=annocolor
+  return(anno)
+}
+
+#ctype.removed=c("blood","vessel")
+average.cor=function(my.integrated=my.integrated,gene.used=hvgscran,ctype.removed=NULL,color.origin="",color.ctype="",color.gradient=colorRampPalette(rev(brewer.pal(n = 7, name = "RdYlBu")))(100),
+                     method.used="pearson",assay.used="integrated",log=FALSE,scale=FALSE){
+  #calculate average expression
+  my.average=AverageExpression(my.integrated,assays = assay.used)[[assay.used]]
+  
+  #calculate correlation
+  my.avgSelect=my.average[gene.used,] 
+  if(log){my.avgSelect=log1p(my.avgSelect)}
+  if(scale){my.avgSelect=t(scale(t(my.avgSelect)))}
+  my.correlation=pairwise.cor(data = my.avgSelect,method = method.used)
+  my.correlation[is.na(my.correlation)]=0
+  #add annotation legend
+  anno=pheatmap.anno(data=my.correlation,color.origin=color.origin ,color.ctype=color.ctype)
+  #visualization
+  p1=pheatmap(
+    mat               = my.correlation,
+    color = color.gradient,
+    border_color      = NA,
+    show_colnames     = F,
+    show_rownames     = TRUE,
+    cluster_rows=TRUE, cluster_cols = TRUE, 
+    drop_levels       = TRUE,
+    fontsize          = 12, silent = TRUE,
+    annotation_col    = anno$row,
+    annotation_colors = anno$color,
+    main              = paste0(method.used,"'s correlation")
+  )
+  #remove close cell types:blood
+  samples.subset=colnames(my.correlation)
+  if(length(ctype.removed)!=0){
+    for(i in 1:length(ctype.removed)){
+      samples.subset=samples.subset[!grepl(ctype.removed[i],samples.subset)]
+    }
+  }
+  my.correlation2=my.correlation[samples.subset,samples.subset]
+  #add annotation legend
+  anno2=pheatmap.anno(data=my.correlation2)
+  p2=pheatmap(
+    mat               = my.correlation2,
+    color = color.gradient,
+    border_color      = NA,
+    show_colnames     = F,
+    show_rownames     = TRUE,
+    cluster_rows=TRUE, cluster_cols = TRUE, 
+    drop_levels       = TRUE,
+    fontsize          = 12, silent = TRUE,
+    annotation_col    = anno2$row,
+    annotation_colors = anno2$color,
+    main              = paste0(method.used,"'s correlation")
+  )
+  #plot
+  #plot.new();print(p1);
+  plot.new();print(p2)
+  #output
+  my.list=list()
+  my.list[['average.exp']]=my.average
+  my.list[['correlation']]=my.correlation
+  my.list[['hclust']]=p1$tree_row
+  my.list[['plot']]=p2
+  return(my.list)
+}
+
+filterDegs=function(degs=degs.limb,logfc.thres=0.5,padj.thres=0.05,pct.thres=0.25,n=100,ctype=c("Mesenchyme","skeletogenicCells")){
+  degs=degs[degs$avg_log2FC > logfc.thres & degs$p_val_adj < padj.thres,]
+  degs$maxpct=apply(degs[,c("pct.1","pct.2")],1,max)
+  degs=degs[degs$maxpct > pct.thres,]
+  degs=degs[order(degs$cluster,-degs$avg_log2FC),]
+  degs.keep=NULL
+  for(i in 1:length(ctype)){
+    degs.tmp=degs[degs$cluster==ctype[i],]
+    if(nrow(degs.tmp) < n){
+      degs.keep=rbind(degs.keep,degs.tmp)
+    }else{
+      degs.keep=rbind(degs.keep,degs.tmp[1:n,])
+    }
+  }
+  return(degs.keep)
+}
+
+save_pheatmap_pdf <- function(x, filename, width=6, height=4) {
+   stopifnot(!missing(x))
+   stopifnot(!missing(filename))
+   pdf(filename, width=width, height=height)
+   grid::grid.newpage()
+   grid::grid.draw(x$gtable)
+   dev.off()
+}
+```
+
+## read in scRNA-seq data
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+#HVGs
+hvgs.scran=read.table(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/integration/preprocessed_scranHVGs.txt"),
+                      sep="\t",row.names=1,header=TRUE)
+dim(hvgs.scran[hvgs.scran$Freq>=2,])
+hvgscran=as.character(hvgs.scran[hvgs.scran$Freq>=2,"hvgs"])
+
+#metadata
+meta = paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/clustering/meta_",c("limb","nasal","somite"),".rds")
+my.meta=NULL
+for(i in 1:length(meta)){
+  meta.tmp=readRDS(meta[i])
+  my.meta=rbind(my.meta,meta.tmp)
+}
+my.meta$stage=factor(my.meta$stage,levels = paste0("HH",c("27","24","22","21","20","18","15","12")))
+my.gradient=plasma(8); names(my.gradient)=levels(my.meta$stage)
+
+#merged matrix
+my.files="integrate_seuratHVGscran_wholeGenesets.rds"
+my.path="/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/integration/"
+my.integrated=readRDS(paste0(my.path,my.files))
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+#preset cell type annotations:fine
+my.integrated=AddMetaData(my.integrated,metadata = my.meta[rownames(my.integrated@meta.data),c("broad","annotation_broad","fine","annotation_fine")])
+#add celltype based on fine clustering
+my.integrated$fine_unique=paste0(my.integrated$origin,"_cls",my.integrated$fine)
+celltype.fine=c("mesenchyme or connective tissue","chondrocytes late","mesenchyme proliferate","cycling cells","mesenchyme WNT5A",
+                "mesenchyme anterior","mesenchyme SHOX2","leukocytes","chondrocytes","mesenchyme posterior",
+                "muscle","skin","blood","neurons proliferate","cycling cells",
+                "mesenchyme active cell1","neurons","connective tissue eye","mesenchyme active cell2","vessels",
+                "mesenchyme periocular","chondrocytes","skin","mesenchyme neural crest derived","neuronal cells","blood",
+                "neuralTube progenitors","somite2","neurons","skin","somite1",
+                "dermomyotome","lateral plate mesoderm","chondrocytes","neural crest","intermediate mesoderm",
+                "somite transient","vessels","blood")
+names(celltype.fine)=unique(my.integrated$fine_unique)
+Idents(my.integrated)=my.integrated$fine_unique
+my.integrated=RenameIdents(my.integrated,celltype.fine)
+
+celltype.flevel=c("mesenchyme neural crest derived","mesenchyme WNT5A","mesenchyme anterior","somite1","somite2","somite transient",
+                  "chondrocytes","chondrocytes late",
+                  "mesenchyme or connective tissue","mesenchyme proliferate","mesenchyme SHOX2","mesenchyme posterior","mesenchyme active cell1","mesenchyme active cell2","connective tissue eye","mesenchyme periocular",
+                  "lateral plate mesoderm","neural crest","dermomyotome",
+                  "intermediate mesoderm", "cycling cells","muscle",
+                  "neurons","neurons proliferate","neuralTube progenitors","neuronal cells",
+                  "skin","vessels","blood","leukocytes")
+Idents(my.integrated)=factor(Idents(my.integrated),levels=celltype.flevel)
+my.integrated$celltype.fine=Idents(my.integrated)
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+#preset cell type annotations:broad
+#add celltype based on broad clustering
+my.integrated$broad_unique=paste0(my.integrated$origin,"_cls",my.integrated$broad)
+celltype.broad=c("Mesenchyme", "skeletogenicCells", "CyclingCells", "Leukocytes", "posteriorMesenchyme", 
+                 "Muscle", "Muscle", "Blood", "proliferatingNeurons", "CyclingCells", "cranialMesenchyme", 
+                 "Neurons", "Vessels", "Skin", "NeuronalCells", "Blood", 
+                 "neuralTubeProgenitors", "Sclerotome", "Neurons", "Skin", "Dermomyotome", 
+                 "lateralPlateMesoderm", "neuralCrest", "intermediateMesoderm", "Vessels", "Blood")
+names(celltype.broad)=unique(my.integrated$broad_unique)
+Idents(my.integrated)=my.integrated$broad_unique
+my.integrated=RenameIdents(my.integrated,celltype.broad)
+
+my.integrated$celltype.broad=Idents(my.integrated)
+
+```
+
+## gene set
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+#gene sets
+expressed=rowSums(GetAssayData(my.integrated,assay = "RNA",slot = "counts"))
+expressed=names(expressed[expressed>0]);length(expressed)
+
+## geneset1: top DEGs of mesenchyme populations
+n=100
+degs.limb=read.table(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/clustering/","fig1_limbBroad_degs.txt"),sep = "\t",row.names = 1,header = T,stringsAsFactors = F)
+tops.limb=filterDegs(degs=degs.limb,
+                     logfc.thres=0.5,padj.thres=0.05,pct.thres=0.25,
+                     n=100,ctype=c("Mesenchyme","skeletogenicCells")); dim(tops.limb)
+
+degs.somite=read.table(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/clustering/","fig1_somiteBroad_degs.txt"),sep = "\t",row.names = 1,header = T,stringsAsFactors = F)
+tops.somite=filterDegs(degs=degs.somite,
+                     logfc.thres=0.5,padj.thres=0.05,pct.thres=0.25,
+                     n=100,ctype=c("Sclerotome")); dim(tops.somite)
+
+degs.nasal=read.table(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/clustering/","fig1_nasalBroad_degs.txt"),sep = "\t",row.names = 1,header = T,stringsAsFactors = F)
+tops.nasal=filterDegs(degs=degs.nasal,
+                     logfc.thres=0.5,padj.thres=0.05,pct.thres=0.25,
+                     n=100,ctype=c("cranialMesenchyme")); dim(tops.nasal)
+
+tops.all=c(tops.limb$gene,tops.nasal$gene,tops.somite$gene)
+tops.all=tops.all[!duplicated(tops.all)];length(tops.all);
+geneset1=tops.all[tops.all %in% expressed];length(geneset1)
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+## geneset2: top DEGs of all cell type
+n=100
+tops.limb=filterDegs(degs=degs.limb,
+                     logfc.thres=0.5,padj.thres=0.05,pct.thres=0.25,
+                     n=100,ctype=unique(degs.limb$cluster))
+dim(tops.limb)
+
+tops.somite=filterDegs(degs=degs.somite,
+                     logfc.thres=0.5,padj.thres=0.05,pct.thres=0.25,
+                     n=100,ctype=unique(degs.somite$cluster))
+dim(tops.somite)
+
+tops.nasal=filterDegs(degs=degs.nasal,
+                     logfc.thres=0.5,padj.thres=0.05,pct.thres=0.25,
+                     n=100,ctype=unique(degs.nasal$cluster))
+dim(tops.nasal)
+
+tops.all=c(tops.limb$gene,tops.nasal$gene,tops.somite$gene)
+tops.all=tops.all[!duplicated(tops.all)];length(tops.all);
+geneset2=tops.all[tops.all %in% expressed];length(geneset2)
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+#geneset3: expressed TF genes
+tf=read.table("/scicore/home/tschoppp/GROUP/references/genomes/TFs/Gallus_gallus_TF_AnimalTFDB3_edited.txt", sep = "\t", header = T)
+express.tf=expressed[(expressed %in% as.character(tf$Ensembl))]
+
+
+#geneset4: expressed matrisome genes
+matrisome=read.table("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/matrisome_genelist_fromFabio.txt", sep = "\t", header = T)
+express.matrisome=expressed[(expressed %in% as.character(matrisome$ID))]
+
+```
+
+## heatmap
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+Idents(my.integrated)=paste0(my.integrated$origin,"_",my.integrated$celltype.fine)
+#Idents(my.integrated)=paste0(my.integrated$origin,"_",my.integrated$celltype.broad)
+ctype.order=celltype.flevel
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+library(viridisLite);library(RColorBrewer)
+#set color
+#color.gradient=colorRampPalette(rev(brewer.pal(n = 7, name ="RdYlBu")))(100)
+#color.gradient=viridis(n=100,option = "A")
+color.gradient=colorRampPalette(rev(brewer.pal(n = 9, name ="YlGnBu")[c(1:9)]))(101)
+my.break=seq(0.6,1,by=0.4/100)
+
+#to use default color
+color.origin="";color.ctype=""
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+#get subset
+mcluster=unique(Idents(my.integrated)) #my.integrated$celltype.fine
+mcls=c(as.character(mcluster[grep(c("mesenchyme|_somite|chondrocytes|eye"),mcluster)])) #|skin
+my.subset=mcls[!(mcls %in% c("limb_mesenchyme posterior"))]
+my.subset
+```
+
+### top DEGs: 859
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.width=15,fig.height=9}
+##### mesenchyme only
+length(geneset2)
+correlation1=average.cor(my.integrated=subset(my.integrated,cell=names(Idents(my.integrated)[(Idents(my.integrated) %in% my.subset)])), gene.used=geneset2, method.used="spearman",assay.used="integrated",color.origin=color.origin,color.ctype=color.ctype,color.gradient = color.gradient)
+
+correlation2=average.cor(my.integrated=subset(my.integrated,cell=names(Idents(my.integrated)[(Idents(my.integrated) %in% my.subset)])), gene.used=geneset2, method.used="pearson",assay.used="integrated",log = TRUE,color.origin=color.origin,color.ctype=color.ctype,color.gradient = color.gradient)
+
+#save_pheatmap_pdf(correlation1$plot,"/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/figure_drafts/figure2_C1.pdf", width=12, height=8)
+
+```
+
+### top DEGs (mesenchyme): 149
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.width=15,fig.height=9}
+##### mesenchyme only
+length(geneset1)
+correlation1=average.cor(my.integrated=subset(my.integrated,cell=names(Idents(my.integrated)[(Idents(my.integrated) %in% my.subset)])), gene.used=geneset1, method.used="spearman",assay.used="integrated",color.origin=color.origin,color.ctype=color.ctype,color.gradient = color.gradient)
+
+correlation2=average.cor(my.integrated=subset(my.integrated,cell=names(Idents(my.integrated)[(Idents(my.integrated) %in% my.subset)])), gene.used=geneset1, method.used="pearson",assay.used="integrated",log = TRUE,color.origin=color.origin,color.ctype=color.ctype,color.gradient = color.gradient)
+
+#save_pheatmap_pdf(correlation1$plot,"/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/figure_drafts/figure2_C1.pdf", width=12, height=8)
+
+```
+
+### expressed TFs: 1014
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.width=15,fig.height=9}
+##### mesenchyme only
+length(express.tf)
+correlation1=average.cor(my.integrated=subset(my.integrated,cell=names(Idents(my.integrated)[(Idents(my.integrated) %in% my.subset)])), gene.used=express.tf, method.used="spearman",assay.used="integrated",color.origin=color.origin,color.ctype=color.ctype,color.gradient = color.gradient)
+
+correlation2=average.cor(my.integrated=subset(my.integrated,cell=names(Idents(my.integrated)[(Idents(my.integrated) %in% my.subset)])), gene.used=express.tf, method.used="pearson",assay.used="integrated",log = TRUE,color.origin=color.origin,color.ctype=color.ctype,color.gradient = color.gradient)
+
+#save_pheatmap_pdf(correlation1$plot,"/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/figure_drafts/figure2_C1.pdf", width=12, height=8)
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.width=15,fig.height=9}
+#reduce the size of geneset
+set.seed(321)
+geneset3=sample(express.tf,length(geneset1));length(geneset3)
+correlation1=average.cor(my.integrated=subset(my.integrated,cell=names(Idents(my.integrated)[(Idents(my.integrated) %in% my.subset)])), gene.used=geneset3, method.used="spearman",assay.used="integrated",color.origin=color.origin,color.ctype=color.ctype,color.gradient = color.gradient)
+
+correlation2=average.cor(my.integrated=subset(my.integrated,cell=names(Idents(my.integrated)[(Idents(my.integrated) %in% my.subset)])), gene.used=geneset3, method.used="pearson",assay.used="integrated",log = TRUE,color.origin=color.origin,color.ctype=color.ctype,color.gradient = color.gradient)
+
+#save_pheatmap_pdf(correlation1$plot,"/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/figure_drafts/figure2_C1.pdf", width=12, height=8)
+
+```
+
+## log
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+sessionInfo()
+```

@@ -1,0 +1,141 @@
+---
+title: "figure5_heatmap"
+output: 
+  html_document:
+    df_print: paged
+  html_notebook:
+editor_options:
+  chunk_output_type: inline
+---
+
+for panel G-I
+
+```{r setup, message=FALSE, warning=FALSE, echo=FALSE}
+# packages
+library(ggplot2); library(patchwork); library(gridExtra)
+library(RColorBrewer); library(dplyr)
+library(factoextra)
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+my.origins=c("limb","somite","nasal")
+
+cls.retain=list()
+cls.retain[["nasal"]]=c("neuralcrestDerivedMesenchyme","eyeConnectiveTissue","chondrocytes")
+cls.retain[["somite"]]=c("somite2","somite1","chondrocytes")
+cls.retain[["limb"]]=c("WNT5AMesenchyme","amb_mesenchymeORnsConnectiveTissue","chondrocytes","lateChondrocytes")
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+
+```
+
+## nasal
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+## optimize the number of kmeans by hkmeans
+#shift to R version 4.1.2, due to unable install library(factoextra) in R v4.0.3, ml R/4.1.2-foss-2018b-Python-3.6.6 
+origin="nasal"
+p1=readRDS(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/peak2gene/p2gLinks_heatmapMatrix_",origin,".rds"))
+knn.meta=read.table(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/peak2gene/p2gLinks_knnMeta_",origin,".txt"),sep = "\t")
+rownames(knn.meta)=knn.meta$knnID
+
+# reduce the number of columns
+knn.select=knn.meta
+knn.select=knn.select[order(knn.select$groupBy,knn.select$average.ptime),]
+knn.select=knn.select[(knn.select$groupBy %in% cls.retain[[origin]]) & (knn.select$percent.retain>0.5),]
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+tmp.k=length(cls.retain[[origin]])
+res.hk <-hkmeans(p1@listData$ATAC$matrix[,knn.select$knnID], tmp.k)
+res.hk[["cluster"]][res.hk[["cluster"]]==1]="k3"
+res.hk[["cluster"]][res.hk[["cluster"]]==2]="k2"
+res.hk[["cluster"]][res.hk[["cluster"]]==3]="k1"
+table(res.hk[["cluster"]])
+
+p0=fviz_cluster(res.hk, geom="point", palette = "jco", repel = TRUE, main="hkmeans",ggtheme = theme_classic())
+
+pdf(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts/figS5/p2gLinks_hkmeansCls_",origin,".pdf"),width = 8,height = 6)
+print(p0)
+dev.off()
+```
+
+## somite
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+## optimize the number of kmeans by hkmeans
+#shift to R version 4.1.2, due to unable install library(factoextra) in R v4.0.3, ml R/4.1.2-foss-2018b-Python-3.6.6 
+origin="somite"
+p1=readRDS(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/peak2gene/p2gLinks_heatmapMatrix_",origin,".rds"))
+knn.meta=read.table(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/peak2gene/p2gLinks_knnMeta_",origin,".txt"),sep = "\t")
+rownames(knn.meta)=knn.meta$knnID
+
+# reduce the number of columns
+knn.select=knn.meta
+knn.select=knn.select[order(knn.select$groupBy,knn.select$average.ptime),]
+knn.select=knn.select[(knn.select$groupBy %in% cls.retain[[origin]]) & (knn.select$percent.retain>0.5),]
+
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+tmp.k=length(cls.retain[[origin]])
+res.hk <-hkmeans(p1@listData$ATAC$matrix[,knn.select$knnID], tmp.k)
+res.hk[["cluster"]][res.hk[["cluster"]]==1]="k1"
+res.hk[["cluster"]][res.hk[["cluster"]]==2]="k2"
+res.hk[["cluster"]][res.hk[["cluster"]]==3]="k3"
+table(res.hk[["cluster"]])
+
+p0=fviz_cluster(res.hk, geom="point", palette = "jco", repel = TRUE, main="hkmeans",ggtheme = theme_classic())
+
+pdf(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts/figS5/p2gLinks_hkmeansCls_",origin,".pdf"),width = 8,height = 6)
+print(p0)
+dev.off()
+```
+
+## limb
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+## optimize the number of kmeans by hkmeans
+#shift to R version 4.1.2, due to unable install library(factoextra) in R v4.0.3, ml R/4.1.2-foss-2018b-Python-3.6.6 
+origin="limb"
+p1=readRDS(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/peak2gene/p2gLinks_heatmapMatrix_",origin,".rds"))
+knn.meta=read.table(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/peak2gene/p2gLinks_knnMeta_",origin,".txt"),sep = "\t")
+rownames(knn.meta)=knn.meta$knnID
+
+# reduce the number of columns
+knn.select=knn.meta
+knn.select=knn.select[order(knn.select$groupBy,knn.select$average.ptime),]
+knn.select=knn.select[(knn.select$groupBy %in% cls.retain[[origin]]) & (knn.select$percent.retain>0.5),]
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+tmp.k=length(cls.retain[[origin]])
+res.hk <-hkmeans(p1@listData$ATAC$matrix[,knn.select$knnID], tmp.k)
+res.hk[["cluster"]][res.hk[["cluster"]]==1]="k1"
+res.hk[["cluster"]][res.hk[["cluster"]]==2]="k4"
+res.hk[["cluster"]][res.hk[["cluster"]]==3]="k3"
+res.hk[["cluster"]][res.hk[["cluster"]]==4]="k2"
+table(res.hk[["cluster"]])
+
+p0=fviz_cluster(res.hk, geom="point", palette = "jco", repel = TRUE, main="hkmeans",ggtheme = theme_classic())
+
+pdf(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts/figS5/p2gLinks_hkmeansCls_",origin,".pdf"),width = 8,height = 6)
+print(p0)
+dev.off()
+```
+
+## log
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+sessionInfo()
+```
+

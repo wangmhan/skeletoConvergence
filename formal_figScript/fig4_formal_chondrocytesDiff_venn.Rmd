@@ -1,0 +1,90 @@
+---
+title: "figure4_chondrocytesDiffAnalysis"
+output: 
+  html_document:
+    df_print: paged
+  html_notebook:
+editor_options:
+  chunk_output_type: inline
+---
+
+for panel D and F
+
+```{r setup, message=FALSE, warning=FALSE, echo=FALSE}
+# packages
+library(eulerr);
+```
+
+## common TFs (scRNA)
+
+top 20
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+# DEGs: chondrocytes vs other Mesenchyme, L/N/S respectively
+# get the common ones
+degs.l=read.table("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/clustering/fig1_limbFine_degs_pval0.2pct0.01fd0.01.txt") #the stringent one has too few DEGs for overlap:minpct025_logfc025
+degs.l=degs.l[degs.l$cluster=="chondrocytes" & degs.l$avg_log2FC>0 & degs.l$p_val < 0.05,"name"];length(degs.l)
+
+degs.n=read.table("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/clustering/fig1_nasalFine_degs_pval0.2pct0.01fd0.01.txt")
+degs.n=degs.n[degs.n$cluster=="chondrocytes" & degs.n$avg_log2FC>0 & degs.n$p_val < 0.05,"name"];length(degs.n)
+
+degs.s=read.table("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/clustering/fig1_somiteFine_degs_pval0.2pct0.01fd0.01.txt")
+degs.s=degs.s[degs.s$cluster=="chondrocytes" & degs.s$avg_log2FC>0 & degs.s$p_val < 0.05,"name"];length(degs.s)
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.width=6}
+combn=list(limb=degs.l,nasal=degs.n,somite=degs.s)
+plot(euler(combn), quantities = TRUE)
+
+pdf("~/figure_drafts/chondrocytes_commonDEGs_scRNA_venn.pdf",width = 6,height=4)
+plot(euler(combn), quantities = TRUE)
+dev.off()
+
+```
+
+## common TFs (scATAC)
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+# differential motif activity: chondrocytes vs other Mesenchyme, L/N/S respectively
+# get the common ones
+dmotif.l=read.table(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/diffAnalysis/diffact_motifID_fcthres001_limb.txt"),sep = "\t",header = T)
+dmotif.l$mforigin=sapply(strsplit(dmotif.l$motifAnno.withPseutodime.consist,"_"),"[",1)
+dmotif.l=dmotif.l[dmotif.l$cluster=="chondrocytes" & dmotif.l$avg_diff>0,"motifAnno.withPseutodime.consist"] # & dmotif.l$mforigin=="L"
+#dmotif.l=sapply(strsplit(dmotif.l,"_"),"[",4)
+dmotif.l=dmotif.l[dmotif.l!=""];length(dmotif.l)
+
+dmotif.n=read.table(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/diffAnalysis/diffact_motifID_fcthres001_nasal.txt"),sep = "\t",header = T)
+dmotif.n$mforigin=sapply(strsplit(dmotif.n$motifAnno.withPseutodime.consist,"_"),"[",1)
+dmotif.n=dmotif.n[dmotif.n$cluster=="chondrocytes" & dmotif.n$avg_diff>0,"motifAnno.withPseutodime.consist"] # & dmotif.n$mforigin=="N"
+#dmotif.n=sapply(strsplit(dmotif.n,"_"),"[",4)
+dmotif.n=dmotif.n[dmotif.n!=""];length(dmotif.n)
+
+dmotif.s=read.table(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/diffAnalysis/diffact_motifID_fcthres001_somite.txt"),sep = "\t",header = T)
+dmotif.s$mforigin=sapply(strsplit(dmotif.s$motifAnno.withPseutodime.consist,"_"),"[",1)
+dmotif.s=dmotif.s[dmotif.s$cluster=="chondrocytes" & dmotif.s$avg_diff>0,"motifAnno.withPseutodime.consist"] # & dmotif.s$mforigin=="S"
+#dmotif.s=sapply(strsplit(dmotif.s,"_"),"[",4)
+dmotif.s=dmotif.s[dmotif.s!=""];length(dmotif.s)
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+combn=list(limb=dmotif.l,nasal=dmotif.n,somite=dmotif.s)
+plot(euler(combn), quantities = TRUE)
+
+pdf("~/figure_drafts/chondrocytes_commonDAMs_scATAC_venn.pdf",width = 6,height=4)
+plot(euler(combn), quantities = TRUE)
+dev.off()
+
+```
+
+## log
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+sessionInfo()
+```
+

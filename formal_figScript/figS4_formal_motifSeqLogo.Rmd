@@ -1,0 +1,204 @@
+---
+title: "motif_seqLogo"
+output: 
+  html_document:
+    df_print: paged
+  html_notebook:
+editor_options:
+  chunk_output_type: inline
+--- 
+
+for panel A and E
+
+```{r setup, message=FALSE, warning=FALSE, echo=FALSE}
+library(GenomeInfoDb); library(ensembldb)
+library(GenomicRanges); library(TFBSTools)
+library(motifStack)
+# https://bioconductor.org/packages/devel/bioc/vignettes/motifStack/inst/doc/motifStack_HTML.html
+
+set.seed(1234)
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+#function
+toPFM=function(motifs=mf.all,id="L.SIX1-cls7-1"){
+  #tmp.pwm=motifs[[id]]@profileMatrix
+  #tmp.pfm=as.matrix(round(tmp.pwm*20,0))
+  tmp.pfm=motifs[[id]]@profileMatrix
+  tmp1=paste0(">",id)
+  tmp2=(tmp.pfm)
+  #write out
+  cat(tmp1,file=outfile,sep="\n",append=TRUE)
+  write.table(tmp2,file=outfile,sep=" ",append=TRUE,
+              row.names = F,col.names = F,quote = F)
+}
+
+toSeqLogo=function(motifs=mf.each,id="sub_5.clssub_5_1_RAACAAAGVNNBCWTTGTT"){
+  tmp.pwm=motifs[[id]]@profileMatrix
+  tmp.pfm=as.matrix(round(tmp.pwm*20,0))
+  rownames(tmp.pfm)=c("A","C","G","T")
+  tmp.mtx=PFMatrix(ID=id,  
+                   bg=c(A=0.25, C=0.25, G=0.25, T=0.25),
+                   tags=list(species="Gallus gallus",
+                             tax_group="vertebrates"),
+                   profileMatrix=tmp.pfm
+  )
+  
+  #seqLogo(toICM(tmp.mtx))
+  return(tmp.mtx)
+}
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+pfm.jp=readRDS("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/motifEnrich/pfmtx_jaspar20_vertebrates.rds")
+pfm.cb=readRDS("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/motifEnrich/pwmtx_cisBP2_chicken.rds")
+pfm.hm=readRDS("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/motifEnrich/pfmtx_homer.rds")
+
+mf.all=readRDS(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/motifEnrich/LNS_denovoMotifs_assigned.rds"))
+names(mf.all)=gsub("limb\\.L\\.","",names(mf.all))
+names(mf.all)=gsub("nasal\\.N\\.","",names(mf.all))
+names(mf.all)=gsub("somite\\.S\\.","",names(mf.all))
+
+```
+
+## sox9
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+# SOX9 jaspar20
+seqLogo(toICM(pfm.jp$MA0077.1))
+
+# SOX9 cisBP2: M02716_2.00
+seqLogo(toICM(toSeqLogo(motifs=pfm.cb,id="M02716_2.00")))
+
+# SOX9 homer:homer_343_AGGVNCCTTTGT
+seqLogo(toICM(pfm.hm$homer_343_AGGVNCCTTTGT))
+
+# SOX9 de novo: L.SOX9-clssub5-1
+seqLogo(toICM(toSeqLogo(motifs=mf.all,id="L.SOX9-clssub5-1")))
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+mf.sox9=list()
+mf.sox9[["jaspar20"]]=pfm.jp$MA0077.1
+mf.sox9[["cisbp2"]]=toSeqLogo(motifs=pfm.cb,id="M02716_2.00")
+mf.sox9[["homer"]]=pfm.hm$homer_343_AGGVNCCTTTGT
+mf.sox9[["deNovo"]]=toSeqLogo(motifs=mf.all,id="L.SOX9-clssub5-1")
+
+pdf("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts/fig4/seqLogo_motifSet_sox9_trimmed.pdf",width = 5,height = 3)
+for(i in 1:length(mf.sox9)){
+  system("rm /scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/motifEnrich/homer_lns_motifs_denovo_pfmForMotifStack.txt")
+  outfile<-paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/motifEnrich/homer_lns_motifs_denovo_pfmForMotifStack.txt")
+  tmp.id=names(mf.sox9)[i]
+  toPFM(motifs=mf.sox9,id=tmp.id)
+  
+  #print each cluster
+  motifs=importMatrix("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/motifEnrich/homer_lns_motifs_denovo_pfmForMotifStack.txt",format = "pfm")
+  # !! trim the motifs
+  motifs2 <- lapply(motifs, trimMotif, t=0.4)
+  #motifs2 <- lapply(motifs, trimMotif, t=0)
+  motifs.keep=list()
+  for(j in 1:length(motifs2)){
+    if(is.na(motifs2[[j]])){
+      print(paste0("without information content >0.4: ",names(motifs2)[j]))
+    }else{
+      motifs.keep[[names(motifs2)[j]]]=motifs2[[j]]
+    }
+  }
+  if(length(motifs.keep)==1){
+    plot(motifs.keep[[1]],ncex=2)
+  }else if(length(motifs.keep)>1){
+    motifStack(motifs.keep, layout="tree",ncex=2)
+  }
+}
+dev.off()
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+
+```
+
+## common motifs
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+mf2tfnames.all=readRDS(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/motifEnrich/all_denovoMotifs_mf2tfnames.rds"))
+mf.anno=readRDS("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/motifEnrich/motifUnion_originConsist.rds")
+mfunion.select=rbind(mf.anno$nasal,mf.anno$somite,mf.anno$limb)
+mfunion.select$unique=paste0(mfunion.select$origin,"_",
+                           sapply(strsplit(mfunion.select$motifid,"-"),"[",1),"_",
+                           sapply(strsplit(mfunion.select$motifid,"-"),"[",2),"_",
+                           mfunion.select$tfname)
+
+mfunion.select$mfnew.unique=""
+for(i in 1:nrow(mfunion.select)){
+  tmp.id=mfunion.select$motifid[i]
+  mfunion.select$mfnew.unique[i]=mf2tfnames.all$overall[mf2tfnames.all$overall$motifid==tmp.id,"mfnew.unique"]
+}
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+mf.n=mfunion.select[mfunion.select$tfname %in% c("TCF7L1","ENSGALG00000015297","FOXF1","MEF2A","MGA") & mfunion.select$origin=="N",] #FOXO3--ENSGALG00000015297
+mf.s=mfunion.select[mfunion.select$tfname %in% c("SOX9","SREBF2") & mfunion.select$origin=="S",]
+mf.l=mfunion.select[mfunion.select$tfname %in% c("SOX9","SOX5","FOXP3") & mfunion.select$origin=="L",]
+
+#plot the heatmap
+mf.test=rbind(mf.n,mf.s,mf.l)
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+mf.select=list()
+#mf.select[["L.SOX5-clssub5-6"]]=mf.all$`L.SOX5-clssub5-6`
+for(i in 1:nrow(mf.test)){
+  mf.select[[mf.test$unique[i]]]=mf.all[[mf.test$mfnew.unique[i]]]
+}
+
+pdf("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts/fig4/seqLogo_commonMotif_noTrimmed.pdf",width = 5,height = 3)
+for(i in 1:length(mf.select)){
+  system("rm /scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts/fig4/homer_lns_motifs_denovo_pfmForMotifStack.txt")
+  outfile<-paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts/fig4/homer_lns_motifs_denovo_pfmForMotifStack.txt")
+  tmp.id=names(mf.select)[i]
+  toPFM(motifs=mf.select,id=tmp.id)
+  
+  #print each cluster
+  motifs=importMatrix("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts/fig4/homer_lns_motifs_denovo_pfmForMotifStack.txt",format = "pfm")
+  # !! trim the motifs
+  #motifs2 <- lapply(motifs, trimMotif, t=0.4)
+  motifs2 <- lapply(motifs, trimMotif, t=0)
+  motifs.keep=list()
+  for(j in 1:length(motifs2)){
+    if(is.na(motifs2[[j]])){
+      print(paste0("without information content >0.4: ",names(motifs2)[j]))
+    }else{
+      motifs.keep[[names(motifs2)[j]]]=motifs2[[j]]
+    }
+  }
+  if(length(motifs.keep)==1){
+    plot(motifs.keep[[1]],ncex=2)
+  }else if(length(motifs.keep)>1){
+    motifStack(motifs.keep, layout="tree",ncex=2)
+  }
+}
+dev.off()
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+
+```
+
+## log
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+sessionInfo()
+```
+

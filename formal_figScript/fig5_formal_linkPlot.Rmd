@@ -1,0 +1,358 @@
+---
+title: "figure5_linkPlot"
+output: 
+  html_document:
+    df_print: paged
+  html_notebook:
+editor_options:
+  chunk_output_type: inline
+---
+ 
+for panel F-G
+
+```{r setup, message=FALSE, warning=FALSE, echo=FALSE}
+# packages
+library(Signac);library(Seurat)
+library(ggplot2); library(patchwork); library(gridExtra)
+library(RColorBrewer); library(dplyr)
+library(GenomeInfoDb); library(ensembldb)
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+anno_path <- "/scicore/home/tschoppp/GROUP/references/genomes/ENS_g6/chicken_Gg6_atac_pre/"
+rna_path <- "/scicore/home/tschoppp/GROUP/lab/Chris.shared/for.Menghan"
+
+gene.info=read.table("/scicore/home/tschoppp/wang0007/scRNA/ensembl97_geneinfo.txt", sep="\t",header = TRUE,row.names = 1,stringsAsFactors = FALSE)
+gene.info[gene.info$genename=="","genename"]=rownames(gene.info[gene.info$genename=="",])
+
+db <- ensDbFromGtf(gtf=paste0("/scicore/home/tschoppp/GROUP/references/genomes/ENS_g6/chicken_Gg6_atac_pre/","Gg6_extended_200819.filter.gtf"), organism = "Gallus_gallus", genomeVersion = "GRCg6a", version = 97)
+edb <- EnsDb(db); rm(db)
+gene.ranges <- genes(edb); length(gene.ranges$gene_id)
+annotations <- GetGRangesFromEnsDb(ensdb = edb)
+
+gene.start=resize(gene.ranges[gene.ranges$gene_biotype == 'protein_coding', ], fix="start", width=10)
+enhancer.ranges=promoters(gene.start,upstream = 250000,downstream = 250000)
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+# function
+#filter to keep significant highly correlated ones
+filter=function(p2g=data,pos=FALSE,cor=0.5,padj=0.05,varq=0.25){
+  p2g=p2g[!is.na(p2g$FDR) & abs(p2g$Correlation) > cor & p2g$FDR < padj & (p2g$VarQRNA > varq & p2g$VarQATAC > varq),]
+  if(pos){p2g=p2g[p2g$Correlation > 0,]}
+  p2g$trend="Pos"
+  p2g[p2g$Correlation < 0,"trend"]="Neg"
+  p2g$unique=paste0(p2g$geneName,",",p2g$peakName,",",p2g$trend)
+  p2g$gnamePKname=paste0(p2g$geneName,",",p2g$peakName)
+  print(table(p2g$trend))
+  return(p2g)
+}
+
+```
+
+## get p2g links 
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+pos=TRUE;cor=0.2; padj=0.05
+p2g.lns=list()
+
+## nasal
+p2g=list()
+p2g[["archr"]]=readRDS("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/peak2gene/nasal_mesenchyme_p2glinks_ArchR.rds")[["full"]]
+
+p2g.sig=p2g
+p2g.sig[["archr"]]=filter(p2g=p2g[["archr"]],pos = pos ,cor=cor,padj=padj,varq=0.25);dim(p2g.sig[["archr"]])
+p2g.sig$archr$peakName=gsub("_","-",p2g.sig$archr$peakName)
+
+p2g.lns[["nasal"]]=p2g.sig[["archr"]]
+
+## somite
+p2g=list()
+p2g[["archr"]]=readRDS("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/peak2gene/somite_mesenchyme_p2glinks_ArchR.rds")[["full"]]
+
+p2g.sig=p2g
+p2g.sig[["archr"]]=filter(p2g=p2g[["archr"]],pos = pos ,cor=cor,padj=padj,varq=0.25);dim(p2g.sig[["archr"]])
+p2g.sig$archr$peakName=gsub("_","-",p2g.sig$archr$peakName)
+
+p2g.lns[["somite"]]=p2g.sig[["archr"]]
+
+## limb
+p2g=list()
+p2g[["archr"]]=readRDS("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/peak2gene/limb_mesenchyme_p2glinks_ArchR.rds")[["full"]]
+
+p2g.sig=p2g
+p2g.sig[["archr"]]=filter(p2g=p2g[["archr"]],pos = pos ,cor=cor,padj=padj,varq=0.25);dim(p2g.sig[["archr"]])
+p2g.sig$archr$peakName=gsub("_","-",p2g.sig$archr$peakName)
+
+p2g.lns[["limb"]]=p2g.sig[["archr"]]
+
+```
+
+## get coverage files
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+my.atac.l=readRDS("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/peak2gene/limb_atac_forLinkPlot.rds")
+my.atac.n=readRDS("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/peak2gene/nasal_atac_forLinkPlot.rds")
+my.atac.s=readRDS("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/peak2gene/somite_atac_forLinkPlot.rds")
+
+my.atac.l@active.assay="macs2peaks";Annotation(my.atac.l)=annotations
+my.atac.n@active.assay="macs2peaks";Annotation(my.atac.n)=annotations
+my.atac.s@active.assay="macs2peaks";Annotation(my.atac.s)=annotations
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+#combine
+my.atac.l@active.assay="macs2peaks"
+my.atac.l[["activity"]]=NULL
+my.atac.l[["activity_combat"]]=NULL
+my.atac.l[["activity.name"]]=NULL
+my.atac.l[["chromvar"]]=NULL
+my.atac.l$origin="limb"
+
+my.atac.n@active.assay="macs2peaks"
+my.atac.n[["activity"]]=NULL
+my.atac.n[["activity_combat"]]=NULL
+my.atac.n[["activity.name"]]=NULL
+my.atac.n[["chromvar"]]=NULL
+my.atac.n$origin="nasal"
+
+my.atac.s@active.assay="macs2peaks"
+my.atac.s[["activity"]]=NULL
+my.atac.s[["activity_combat"]]=NULL
+my.atac.s[["activity.name"]]=NULL
+my.atac.s[["chromvar"]]=NULL
+my.atac.s$origin="somite"
+gc()
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+consensus.gr=StringToGRanges(rownames(my.atac.l))
+```
+
+## plot for candidate genes
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+mcolors=c("#FFD01F","#FFE78A","#DC0078","#FFC0CB","#00416A","#8BD6FF")
+names(mcolors)=c("limb,chondrocytes","limb,WNT5AMesenchyme","nasal,chondrocytes","nasal,neuralcrestDerivedMesenchyme",
+                 "somite,chondrocytes","somite,somite2")
+
+top.n=10
+
+combined=readRDS("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/peak2gene/lnsCombined_atac_forLinkPlot.rds")
+
+```
+
+### SOX9
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.width=10,fig.height=16}
+gene.select="SOX9";extend=250000 #extend=250000
+
+###################
+# get p2g links
+p2g.select=list()
+for(i in 1:length(p2g.lns)){
+  tmp=names(p2g.lns)[i]
+  tmp.p2g=p2g.lns[[tmp]][p2g.lns[[tmp]]$geneName==gene.select & p2g.lns[[tmp]]$FDR<0.05,]
+  tmp.p2g=tmp.p2g[order(-tmp.p2g$Correlation),]
+  if(nrow(tmp.p2g)<top.n){
+    tmp.top=tmp.p2g$peakName
+    p2g.select[[tmp]]=tmp.p2g
+  }else{
+    tmp.top=tmp.p2g$peakName[1:top.n]
+    p2g.select[[tmp]]=tmp.p2g[1:top.n,]
+  }
+}
+
+p2g.select$limb$peakName[order(p2g.select$limb$peakName)]
+p2g.select$nasal$peakName[order(p2g.select$nasal$peakName)]
+p2g.select$somite$peakName[order(p2g.select$somite$peakName)]
+
+peaks=c(p2g.select$limb$peakName,
+        p2g.select$nasal$peakName,
+        p2g.select$somite$peakName,
+        "18-8713977-8714477") #need to add in if not in top10 but test by Ana
+peaks=peaks[!duplicated(peaks)];length(peaks)
+
+###################
+# merge the signac object: LNS
+#combined <- merge(
+#  x = my.atac.n[peaks,],
+#  y = list(my.atac.s[peaks,],my.atac.l[peaks,])
+#);gc()
+#Annotation(combined)=annotations
+#combined$annonew=paste0(combined$origin,",",combined$annotation_fine)
+#combined$annonew=factor(combined$annonew,levels = c("nasal,neuralcrestDerivedMesenchyme","nasal,chondrocytes","somite,somite2","somite,chondrocytes","limb,WNT5AMesenchyme","limb,chondrocytes"))
+
+###################
+# gene loci
+gene.gr=gene.start[gene.start$gene_name==gene.select,]
+gene.loc=paste0(seqnames(gene.gr),"-",start(gene.gr),"-",(start(gene.gr)+1))
+
+###################
+# linkPlot panel
+#https://github.com/stuart-lab/signac/blob/2ad6c3c9c0c8dd31f7e1433b2efd5050d8606f27/R/visualization.R#L1220
+peaks=p2g.select$limb
+if(nrow(peaks)==0){
+  conns.l=data.frame(Peak1=rep(gene.loc,1),
+                   Peak2=rep(gene.loc,1),
+                   coaccess=1)
+}else{
+  conns.l=data.frame(Peak1=rep(gene.loc,nrow(peaks)),
+                   Peak2=gsub("_","-",peaks$peakName),
+                   coaccess=peaks$Correlation)
+}
+links <- ConnectionsToLinks(conns = conns.l)
+Links(combined) <- links
+link_plot.l <- LinkPlot(
+  combined,
+  region = StringToGRanges(paste0(seqnames(gene.gr),"-",start(gene.gr)-extend,"-",(start(gene.gr)+extend)))
+)
+
+peaks=p2g.select$nasal
+if(nrow(peaks)==0){
+  conns.n=data.frame(Peak1=rep(gene.loc,1),
+                   Peak2=rep(gene.loc,1),
+                   coaccess=1)
+}else{
+  conns.n=data.frame(Peak1=rep(gene.loc,nrow(peaks)),
+                   Peak2=gsub("_","-",peaks$peakName),
+                   coaccess=peaks$Correlation)
+}
+links <- ConnectionsToLinks(conns = conns.n)
+Links(combined) <- links
+link_plot.n <- LinkPlot(
+  combined,
+  region = StringToGRanges(paste0(seqnames(gene.gr),"-",start(gene.gr)-extend,"-",(start(gene.gr)+extend)))
+)
+
+peaks=p2g.select$somite
+if(nrow(peaks)==0){
+  conns.s=data.frame(Peak1=rep(gene.loc,1),
+                   Peak2=rep(gene.loc,1),
+                   coaccess=1)
+}else{
+  conns.s=data.frame(Peak1=rep(gene.loc,nrow(peaks)),
+                   Peak2=gsub("_","-",peaks$peakName),
+                   coaccess=peaks$Correlation)
+}
+links <- ConnectionsToLinks(conns = conns.s)
+Links(combined) <- links
+link_plot.s <- LinkPlot(
+  combined,
+  region = StringToGRanges(paste0(seqnames(gene.gr),"-",start(gene.gr)-extend,"-",(start(gene.gr)+extend)))
+)
+
+link_plot.l=link_plot.l+scale_color_gradientn(values= seq(0,1,by=0.2), limits=c(0,1),
+              colors = colorRampPalette(c("white", "#FFD01F"))(10)[c(1,2,3,7,9)])
+#c("blue4","blue2","blue","royalblue","grey")
+
+link_plot.n=link_plot.n+scale_color_gradientn(values= seq(0,1,by=0.2), limits=c(0,1),
+              colors = colorRampPalette(c("white", "#DC0078"))(10)[c(1,2,3,7,9)])
+
+link_plot.s=link_plot.s+scale_color_gradientn(values= seq(0,1,by=0.2), limits=c(0,1),
+              colors = colorRampPalette(c("white", "#008FD4"))(10)[c(1,2,3,7,9)])
+
+###################
+# coveragePlot
+#highlight the part that tested (need to upgrade signac version...)
+ranges.show <- StringToGRanges(paste0(seqnames(gene.gr),"-",start(gene.gr)-1000,"-",(start(gene.gr)+1000)))
+ranges.show$color <- "orange"
+cov_plot=CoveragePlot(combined,region = gene.gr,
+                      group.by = "annonew",
+                      #scale.factor = 1e4,ymax=1000,
+                      #region.highlight = ranges.show,
+                      extend.upstream = extend,extend.downstream = extend,
+                      # highlight enhancers tested by Ana here
+                      ranges = StringToGRanges(c("18-8469749-8470356","18-8713977-8714485","18-8669252-8669771")),
+                      links = F,annotation = F,peaks = T) & 
+  scale_fill_manual(values = mcolors)
+
+
+###################
+# other panels
+gene_plot <- AnnotationPlot(
+  object = combined,
+  region = StringToGRanges(paste0(seqnames(gene.gr),"-",start(gene.gr)-extend,"-",(start(gene.gr)+extend)))
+)
+
+###################
+# combine panels
+p4=CombineTracks(
+  plotlist = list(cov_plot, link_plot.n,
+                  link_plot.s, link_plot.l,
+                  gene_plot),
+  heights = c(12,2,2,2,3)
+)
+
+p4+ggtitle(gene.gr$gene_name)
+
+pdf(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts/fig5/p2g_linkPlot_",gene.select,"_v2.pdf"),width = 8,height = 12)
+p4+ggtitle(gene.gr$gene_name)
+dev.off()
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+## redo combined project based on new peak set 
+peaks=c("18-8469729-8470229","18-8713977-8714477","18-8669271-8669771")
+# check if peaks are in the consensus peak set
+peaks %in% rownames(combined)
+
+# for enhancers only
+tmp.extend=500
+# actual coordinates from Ana: plasmid 559
+tmp.gr=StringToGRanges("18-8469749-8470356") #chr18:8469729-8470229
+tmp.gr$color <- "orange"
+cov_plot.n=CoveragePlot(combined,region = tmp.gr,
+                        group.by = "annonew",
+                        #scale.factor = 1e4,ymax=1000,
+                        #region.highlight = ranges.show,
+                        extend.upstream = tmp.extend,extend.downstream = tmp.extend,
+                        #ranges = consensus.gr,
+                        links = F,annotation = F,peaks = T) & 
+  scale_fill_manual(values = mcolors)
+
+# actual coordinates from Ana: plasmid 534
+tmp.gr=StringToGRanges("18-8713977-8714485") #18-8713977-8714477
+tmp.gr$color <- "orange"
+cov_plot.s=CoveragePlot(combined,region = tmp.gr,
+                        group.by = "annonew",
+                        #scale.factor = 1e4,ymax=1000,
+                        #region.highlight = ranges.show,
+                        extend.upstream = tmp.extend,extend.downstream = tmp.extend,
+                        #ranges = consensus.gr,
+                        links = F,annotation = F,peaks = T) & 
+  scale_fill_manual(values = mcolors)
+
+# actual coordinates from Ana: plasmid 530
+tmp.gr=StringToGRanges("18-8669252-8669771") #18-8669271-8669771
+tmp.gr$color <- "orange"
+cov_plot.l=CoveragePlot(combined,region = tmp.gr,
+                        group.by = "annonew",
+                        #scale.factor = 1e4,ymax=1000, #https://github.com/stuart-lab/signac/issues/17
+                        #region.highlight = ranges.show,
+                        extend.upstream = tmp.extend,extend.downstream = tmp.extend,
+                        #ranges = consensus.gr,
+                        links = F,annotation = F,peaks = T) & 
+  scale_fill_manual(values = mcolors)
+print(cov_plot.n);print(cov_plot.s);print(cov_plot.l)
+
+pdf(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts/fig5/p2g_linkPlot_coverageLNS_",gene.select,"_unscaled.pdf"),width = 6,height = 12)
+print(cov_plot.n);print(cov_plot.s);print(cov_plot.l)
+dev.off()
+
+```
+
+## log
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+sessionInfo()
+```
+
+

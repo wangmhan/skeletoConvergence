@@ -1,0 +1,581 @@
+---
+title: "scRNA_metaGenes"
+output: 
+  html_document:
+    df_print: paged
+  html_notebook:
+editor_options:
+  chunk_output_type: inline
+--- 
+
+derived from fig4_metaGenes.Rmd
+
+genelist from paper:
+2, 3.Limb mesoderm and head ectomesenchyme both express a core transcriptional program during chondrocyte differentiation (fig2.D, IMM marker, MAT marker respectively)
+
+```{r setup, message=FALSE, warning=FALSE, echo=FALSE}
+library(Seurat);library(slingshot)
+library(pheatmap);library(RColorBrewer)
+library("viridis");library(ggplot2)
+library(dplyr); library(scales)
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+gene.info=read.table("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/ensembl97_geneinfo.txt",
+                     sep="\t",header = TRUE,row.names = 1,stringsAsFactors = FALSE)
+gene.info[gene.info$genename=="","genename"]=rownames(gene.info[gene.info$genename=="",])
+gene.info$genename=toupper(gene.info$genename)
+
+save_pheatmap_pdf <- function(x, filename, width=6, height=4) {
+   stopifnot(!missing(x))
+   stopifnot(!missing(filename))
+   pdf(filename, width=width, height=height)
+   grid::grid.newpage()
+   grid::grid.draw(x$gtable)
+   dev.off()
+}
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+my.origins=c("limb","somite","nasal")
+my.files=paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/clustering/subset_",my.origins,".rds")
+
+my.pfiles=paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/pseudotime/ptime_",my.origins,"_slingshot.rds")
+
+my.mfiles=meta=readRDS("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/clustering/meta_all.rds")
+
+cid=c("curve1","curve2","curve4")
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+markers.imm=c("SOX9","WWP2","BCL2","FGFRL1","COMP",
+              "ACAN","RSPO2","MGP","COL11A1","COL9A1",
+              "COL9A2","COL9A3","MATN1","MATN4",
+              "MATN3","SOX6","SOX5","FOXO1",
+              "BARX2","COL2A1")
+print(paste0("the number of genes in IMM module:", length(markers.imm)))
+print(paste0("the number of genes in IMM module (in our data):", length(gene.info[gene.info$genename %in% markers.imm,"genename"])))
+print(paste0("the genes of IMM not exist in our data:",markers.imm[(!markers.imm %in% gene.info$genename)]))
+markersid.imm=rownames(gene.info[gene.info$genename %in% markers.imm,])
+
+markers.mat=c("RUNX2","TWIST1","SP1","MEF2C","IBSP",
+              "FOXA2","SPARC","AXIN2","PTH1R","BAMBI",
+              "HEY1","GLI2","COL10A1","HDAC7","IGF1R",
+              "MMP13","SMAD1","TCF7","DLX5","CTNNB1",
+              "SP3","GLI3","TRPS1","WNT5A","BMP2",
+              "SPP1","LEF1","DUSP9","FGFR1","FGFR2",
+              "FGFR3","TAZ")
+print(paste0("the number of genes in MAT module:", length(markers.mat)))
+print(paste0("the number of genes in MAT module (in our data):", length(gene.info[gene.info$genename %in% markers.mat,"genename"])))
+print(paste0("the genes of MAT not exist in our data:",markers.mat[(!markers.mat %in% gene.info$genename)]))
+markersid.mat=rownames(gene.info[gene.info$genename %in% markers.mat,])
+
+markers.red=read.table("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/bmc_fig6_redModule.txt",
+                       sep="\t",header = T);dim(markers.red)
+markersid.red=markers.red[markers.red$nodeName %in% rownames(gene.info),"nodeName"]
+print(paste0("the number of genes in BMC red module:", nrow(markers.red)))
+print(paste0("the number of genes in BMC red module (in our data):", length(gene.info[rownames(gene.info) %in% markers.red$nodeName,"genename"])))
+print(paste0("the genes of BMC red not exist in our data:"))
+markers.red[(!markers.red$nodeName %in% rownames(gene.info)),]
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+library(limma)
+genes=c(markersid.red,markersid.imm)
+genes=genes[!duplicated(genes)];length(genes)
+
+venn=data.frame(IMM=rep(0,length(genes)),
+                               moduleRED=rep(0,length(genes)))
+rownames(venn)=genes
+venn[rownames(venn) %in% markersid.imm,"IMM"]=1
+venn[rownames(venn) %in% markersid.red,"moduleRED"]=1
+vennDiagram(venn)
+
+```
+
+## nasal
+
+### add module score
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+
+origin="nasal"
+#get scRNA data
+if(origin=="limb"){
+  i=1
+}else if(origin=="somite"){
+  i=2
+}else if(origin=="nasal"){
+  i=3
+}
+subset.rna=readRDS(my.files[i])
+subset.rna@active.assay="RNA"
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+subset.rna=AddModuleScore(subset.rna,assay = "RNA",seed=1234,
+                          features=list(markersid.imm),
+                          name="moduleIMM")
+subset.rna=AddModuleScore(subset.rna,assay = "RNA",seed=1234,
+                          features=list(markersid.mat),
+                          name="moduleMAT")
+subset.rna=AddModuleScore(subset.rna,assay = "RNA",seed=1234,
+                          features=list(markersid.red),
+                          name="moduleRED")
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.width=8}
+#fnames=colnames(subset.rna@meta.data)
+#fnames[grepl("moduleIMM",fnames)]
+p1=FeaturePlot(subset.rna,features = c("moduleIMM1","moduleMAT1","moduleRED1"),
+            reduction = "xtsne",order = TRUE,ncol = 3) + theme(aspect.ratio=1) &
+  scale_colour_gradientn(colours = c("gray90","gray90","gray80","yellow", "orange", "red", "darkred", "darkred"))
+  #scale_colour_gradientn(colours = (viridis(10,option="D"))) 
+p1
+
+#pdf(paste0("~/figure_drafts/ptime_metaGene_featurePlot_",origin,".pdf"),width = 10,height = 4)
+#p1
+#dev.off()
+```
+
+### pseudobin heatmap
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+get_slshot=readRDS(my.pfiles[i])
+meta.rna=my.mfiles[[origin]]; dim(meta.rna)
+
+#add pseudotime & subset
+meta.rna$pseudotime=slingPseudotime(get_slshot[["xtsne"]])[,cid[i]][rownames(meta.rna)]
+meta.rna=meta.rna[!is.na(meta.rna$pseudotime),]; dim(meta.rna)
+subset.rna=subset(subset.rna,cells = rownames(meta.rna))
+meta.rna=meta.rna[rownames(subset.rna@meta.data),]
+
+#put cells into n pseudotime bins
+nbins=10
+n=nbins
+max=max(meta.rna$pseudotime)
+intervals=seq(0,max,by=max/n)
+meta.rna$ptbins=1000
+for(j in 1:(length(intervals)-1)){
+  ptmin=as.numeric(intervals[j])
+  ptmax=as.numeric(intervals[(j+1)])
+  meta.rna[meta.rna$pseudotime >= ptmin & meta.rna$pseudotime < ptmax,"ptbins"]=j
+}
+meta.rna[meta.rna$ptbins==1000,"ptbins"]=n
+p2=ggplot(data.frame(meta.rna), aes(x=ptbins)) + 
+  geom_histogram(colour="black", fill="white",bins=n-1) + 
+  theme_classic()+ggtitle("scRNA ptBins")+ylab("cell number")
+print(p2);print(table(meta.rna$ptbins))
+
+subset.rna=AddMetaData(subset.rna,meta.rna[rownames(subset.rna@meta.data),c("pseudotime","ptbins","annotation_fine")])
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+subset.rna$ptbins=factor(subset.rna$ptbins,levels = as.character(1:n))
+Idents(subset.rna)=subset.rna$ptbins; assay.used="RNA"
+
+# calculate average gene expression
+my.average=AverageExpression(subset.rna,assays = assay.used)[[assay.used]] #no log, no scaled
+colnames(my.average)=paste0("bin",colnames(my.average))
+my.average=as.data.frame(my.average)
+#change to gene name
+my.average$genename=gene.info[rownames(my.average),"genename"]
+tmp=my.average[!duplicated(my.average$genename) & !is.na(my.average$genename),]
+rownames(tmp)=tmp$genename;tmp=tmp[,1:(ncol(my.average)-1)]
+my.average=tmp
+
+#add module score in 
+modules.score=subset.rna@meta.data[,grepl("module",colnames(subset.rna@meta.data))]
+modules.score=t(modules.score);dim(modules.score)
+subset.rna[["module"]]=CreateAssayObject(data=modules.score)
+subset.rna@assays$module@scale.data=modules.score
+assay.used="module"
+my.average2=AverageExpression(subset.rna,assays = assay.used,slot = "scale.data")[[assay.used]] #no exp1m, no log, no scaled
+colnames(my.average2)=paste0("bin",colnames(my.average2))
+
+hist(my.average2["moduleIMM1",],n=40)
+hist(my.average2["moduleRED1",],n=40)
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+# plot
+my.average=rbind(my.average,my.average2)
+gene.selected=c("SOX9","WNT5A","TFAP2A",rownames(my.average2))
+dynamics.rna=my.average[gene.selected[gene.selected %in% rownames(my.average)],]
+dim(dynamics.rna)
+
+log=FALSE;smooth=FALSE;scale=TRUE
+if(log){
+  # translate, then transform: log10(Y + 1 - min(Y))
+  dynamics.rna=log2(dynamics.rna+1)
+}
+# cubic smoothing spline
+if(smooth){
+  dynamics.rna <- t(apply(dynamics.rna,1,function(x){smooth.spline(x,df=3)$y}))
+}
+# scaled
+if(scale){
+  dynamics.rna=t(scale(t(dynamics.rna)))
+}
+
+hist(dynamics.rna["moduleIMM1",],n=40)
+hist(dynamics.rna["moduleRED1",],n=40)
+
+quantile(dynamics.rna);break3=seq(-3, 3, by=0.025)
+col3=colorRampPalette(c("white","grey95","red"))(length(break3))
+  #colorRampPalette(rev(brewer.pal(n = 7, name ="RdYlBu")))(80)
+  #colorRampPalette(colors = c("blue", "white","red"))(8/0.1)
+  #colorRampPalette(rev(brewer.pal(n = 7, name ="RdYlBu")))(100)
+pt1.rna=pheatmap(
+  mat               = dynamics.rna,
+  border_color      = NA,
+  show_colnames     = TRUE, show_rownames     = TRUE,
+  cluster_rows=FALSE, cluster_cols = FALSE, 
+  drop_levels       = TRUE,
+  fontsize_row = 8, fontsize_col = 5, silent = TRUE,
+  #annotation_row    = anno$row, annotation_colors = anno$color,
+  main              = paste0("gene expression dynamics"),
+  color = col3,
+  breaks = break3
+)
+plot.new(); print(pt1.rna)
+
+save_pheatmap_pdf(pt1.rna, paste0("~/figure_drafts/fig3_metaGeneHeatmap_10bins_",origin,".pdf"), width=6, height=5)
+```
+
+## somite
+
+### add module score
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+
+origin="somite"
+#get scRNA data
+if(origin=="limb"){
+  i=1
+}else if(origin=="somite"){
+  i=2
+}else if(origin=="nasal"){
+  i=3
+}
+subset.rna=readRDS(my.files[i])
+subset.rna@active.assay="RNA"
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+subset.rna=AddModuleScore(subset.rna,assay = "RNA",seed=1234,
+                          features=list(markersid.imm),
+                          name="moduleIMM")
+subset.rna=AddModuleScore(subset.rna,assay = "RNA",seed=1234,
+                          features=list(markersid.mat),
+                          name="moduleMAT")
+subset.rna=AddModuleScore(subset.rna,assay = "RNA",seed=1234,
+                          features=list(markersid.red),
+                          name="moduleRED")
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.width=8}
+#fnames=colnames(subset.rna@meta.data)
+#fnames[grepl("moduleIMM",fnames)]
+p1=FeaturePlot(subset.rna,features = c("moduleIMM1","moduleMAT1","moduleRED1"),
+            reduction = "xtsne",order = TRUE,ncol = 3) + theme(aspect.ratio=1) &
+  scale_colour_gradientn(colours = c("gray90","gray90","gray80","yellow", "orange", "red", "darkred", "darkred"))
+  #scale_colour_gradientn(colours = (viridis(10,option="D"))) 
+p1
+
+#pdf(paste0("~/figure_drafts/ptime_metaGene_featurePlot_",origin,".pdf"),width = 10,height = 4)
+#p1
+#dev.off()
+```
+
+### pseudobin heatmap
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+get_slshot=readRDS(my.pfiles[i])
+meta.rna=my.mfiles[[origin]]; dim(meta.rna)
+
+#add pseudotime & subset
+meta.rna$pseudotime=slingPseudotime(get_slshot[["xtsne"]])[,cid[i]][rownames(meta.rna)]
+meta.rna=meta.rna[!is.na(meta.rna$pseudotime),]; dim(meta.rna)
+subset.rna=subset(subset.rna,cells = rownames(meta.rna))
+meta.rna=meta.rna[rownames(subset.rna@meta.data),]
+
+#put cells into n pseudotime bins
+nbins=10
+n=nbins
+max=max(meta.rna$pseudotime)
+intervals=seq(0,max,by=max/n)
+meta.rna$ptbins=1000
+for(j in 1:(length(intervals)-1)){
+  ptmin=as.numeric(intervals[j])
+  ptmax=as.numeric(intervals[(j+1)])
+  meta.rna[meta.rna$pseudotime >= ptmin & meta.rna$pseudotime < ptmax,"ptbins"]=j
+}
+meta.rna[meta.rna$ptbins==1000,"ptbins"]=n
+p2=ggplot(data.frame(meta.rna), aes(x=ptbins)) + 
+  geom_histogram(colour="black", fill="white",bins=n-1) + 
+  theme_classic()+ggtitle("scRNA ptBins")+ylab("cell number")
+print(p2);print(table(meta.rna$ptbins))
+
+subset.rna=AddMetaData(subset.rna,meta.rna[rownames(subset.rna@meta.data),c("pseudotime","ptbins","annotation_fine")])
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+subset.rna$ptbins=factor(subset.rna$ptbins,levels = as.character(1:n))
+Idents(subset.rna)=subset.rna$ptbins; assay.used="RNA"
+
+# calculate average gene expression
+my.average=AverageExpression(subset.rna,assays = assay.used)[[assay.used]] #no log, no scaled
+colnames(my.average)=paste0("bin",colnames(my.average))
+my.average=as.data.frame(my.average)
+#change to gene name
+my.average$genename=gene.info[rownames(my.average),"genename"]
+tmp=my.average[!duplicated(my.average$genename) & !is.na(my.average$genename),]
+rownames(tmp)=tmp$genename;tmp=tmp[,1:(ncol(my.average)-1)]
+my.average=tmp
+
+#add module score in 
+modules.score=subset.rna@meta.data[,grepl("module",colnames(subset.rna@meta.data))]
+modules.score=t(modules.score);dim(modules.score)
+subset.rna[["module"]]=CreateAssayObject(data=modules.score)
+subset.rna@assays$module@scale.data=modules.score
+assay.used="module"
+my.average2=AverageExpression(subset.rna,assays = assay.used,slot = "scale.data")[[assay.used]] #no exp1m, no log, no scaled
+colnames(my.average2)=paste0("bin",colnames(my.average2))
+
+hist(my.average2["moduleIMM1",],n=40)
+hist(my.average2["moduleRED1",],n=40)
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+# plot
+my.average=rbind(my.average,my.average2)
+gene.selected=c("SOX9","WNT5A","TFAP2A",rownames(my.average2))
+dynamics.rna=my.average[gene.selected[gene.selected %in% rownames(my.average)],]
+dim(dynamics.rna)
+
+log=FALSE;smooth=FALSE;scale=TRUE
+if(log){
+  # translate, then transform: log10(Y + 1 - min(Y))
+  dynamics.rna=log2(dynamics.rna+1)
+}
+# cubic smoothing spline
+if(smooth){
+  dynamics.rna <- t(apply(dynamics.rna,1,function(x){smooth.spline(x,df=3)$y}))
+}
+# scaled
+if(scale){
+  dynamics.rna=t(scale(t(dynamics.rna)))
+}
+
+hist(dynamics.rna["moduleIMM1",],n=40)
+hist(dynamics.rna["moduleRED1",],n=40)
+
+quantile(dynamics.rna);break3=seq(-3, 3, by=0.025)
+col3=colorRampPalette(c("white","grey95","red"))(length(break3))
+  #colorRampPalette(rev(brewer.pal(n = 7, name ="RdYlBu")))(80)
+  #colorRampPalette(colors = c("blue", "white","red"))(8/0.1)
+  #colorRampPalette(rev(brewer.pal(n = 7, name ="RdYlBu")))(100)
+pt1.rna=pheatmap(
+  mat               = dynamics.rna,
+  border_color      = NA,
+  show_colnames     = TRUE, show_rownames     = TRUE,
+  cluster_rows=FALSE, cluster_cols = FALSE, 
+  drop_levels       = TRUE,
+  fontsize_row = 8, fontsize_col = 5, silent = TRUE,
+  #annotation_row    = anno$row, annotation_colors = anno$color,
+  main              = paste0("gene expression dynamics"),
+  color = col3,
+  breaks = break3
+)
+plot.new(); print(pt1.rna)
+
+save_pheatmap_pdf(pt1.rna, paste0("~/figure_drafts/fig3_metaGeneHeatmap_10bins_",origin,".pdf"), width=6, height=5)
+```
+
+## limb
+
+### add module score
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+
+origin="limb"
+#get scRNA data
+if(origin=="limb"){
+  i=1
+}else if(origin=="somite"){
+  i=2
+}else if(origin=="nasal"){
+  i=3
+}
+subset.rna=readRDS(my.files[i])
+subset.rna@active.assay="RNA"
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+subset.rna=AddModuleScore(subset.rna,assay = "RNA",seed=1234,
+                          features=list(markersid.imm),
+                          name="moduleIMM")
+subset.rna=AddModuleScore(subset.rna,assay = "RNA",seed=1234,
+                          features=list(markersid.mat),
+                          name="moduleMAT")
+subset.rna=AddModuleScore(subset.rna,assay = "RNA",seed=1234,
+                          features=list(markersid.red),
+                          name="moduleRED")
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.width=8}
+#fnames=colnames(subset.rna@meta.data)
+#fnames[grepl("moduleIMM",fnames)]
+p1=FeaturePlot(subset.rna,features = c("moduleIMM1","moduleMAT1","moduleRED1"),
+            reduction = "xtsne",order = TRUE,ncol = 3) + theme(aspect.ratio=1) &
+  scale_colour_gradientn(colours = c("gray90","gray90","gray80","yellow", "orange", "red", "darkred", "darkred"))
+  #scale_colour_gradientn(colours = (viridis(10,option="D"))) 
+p1
+
+#pdf(paste0("~/figure_drafts/ptime_metaGene_featurePlot_",origin,".pdf"),width = 10,height = 4)
+#p1
+#dev.off()
+```
+
+### pseudobin heatmap (with lateChondrocytes)
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+get_slshot=readRDS(my.pfiles[i])
+meta.rna=my.mfiles[[origin]]; dim(meta.rna)
+
+#add pseudotime & subset
+meta.rna$pseudotime=slingPseudotime(get_slshot[["xtsne"]])[,cid[i]][rownames(meta.rna)]
+meta.rna=meta.rna[!is.na(meta.rna$pseudotime),]; dim(meta.rna)
+subset.rna=subset(subset.rna,cells = rownames(meta.rna))
+meta.rna=meta.rna[rownames(subset.rna@meta.data),]
+
+#put cells into n pseudotime bins
+nbins=12
+n=nbins
+max=max(meta.rna$pseudotime)
+intervals=seq(0,max,by=max/n)
+meta.rna$ptbins=1000
+for(j in 1:(length(intervals)-1)){
+  ptmin=as.numeric(intervals[j])
+  ptmax=as.numeric(intervals[(j+1)])
+  meta.rna[meta.rna$pseudotime >= ptmin & meta.rna$pseudotime < ptmax,"ptbins"]=j
+}
+meta.rna[meta.rna$ptbins==1000,"ptbins"]=n
+p2=ggplot(data.frame(meta.rna), aes(x=ptbins)) + 
+  geom_histogram(colour="black", fill="white",bins=n-1) + 
+  theme_classic()+ggtitle("scRNA ptBins")+ylab("cell number")
+print(p2);print(table(meta.rna$ptbins))
+
+subset.rna=AddMetaData(subset.rna,meta.rna[rownames(subset.rna@meta.data),c("pseudotime","ptbins","annotation_fine")])
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+subset.rna$ptbins=factor(subset.rna$ptbins,levels = as.character(1:n))
+Idents(subset.rna)=subset.rna$ptbins; assay.used="RNA"
+
+# calculate average gene expression
+my.average=AverageExpression(subset.rna,assays = assay.used)[[assay.used]] #no log, no scaled
+colnames(my.average)=paste0("bin",colnames(my.average))
+my.average=as.data.frame(my.average)
+#change to gene name
+my.average$genename=gene.info[rownames(my.average),"genename"]
+tmp=my.average[!duplicated(my.average$genename) & !is.na(my.average$genename),]
+rownames(tmp)=tmp$genename;tmp=tmp[,1:(ncol(my.average)-1)]
+my.average=tmp
+
+#add module score in 
+modules.score=subset.rna@meta.data[,grepl("module",colnames(subset.rna@meta.data))]
+modules.score=t(modules.score);dim(modules.score)
+subset.rna[["module"]]=CreateAssayObject(data=modules.score)
+subset.rna@assays$module@scale.data=modules.score
+assay.used="module"
+my.average2=AverageExpression(subset.rna,assays = assay.used,slot = "scale.data")[[assay.used]] #no exp1m, no log, no scaled
+colnames(my.average2)=paste0("bin",colnames(my.average2))
+
+hist(my.average2["moduleIMM1",],n=40)
+hist(my.average2["moduleRED1",],n=40)
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+# plot
+my.average=rbind(my.average,my.average2)
+gene.selected=c("SOX9","WNT5A","TFAP2A",rownames(my.average2))
+dynamics.rna=my.average[gene.selected[gene.selected %in% rownames(my.average)],]
+dim(dynamics.rna)
+
+log=FALSE;smooth=FALSE;scale=TRUE
+if(log){
+  # translate, then transform: log10(Y + 1 - min(Y))
+  dynamics.rna=log2(dynamics.rna+1)
+}
+# cubic smoothing spline
+if(smooth){
+  dynamics.rna <- t(apply(dynamics.rna,1,function(x){smooth.spline(x,df=3)$y}))
+}
+# scaled
+if(scale){
+  dynamics.rna=t(scale(t(dynamics.rna)))
+}
+
+hist(dynamics.rna["moduleIMM1",],n=40)
+hist(dynamics.rna["moduleRED1",],n=40)
+
+quantile(dynamics.rna);break3=seq(-3, 3, by=0.025)
+col3=colorRampPalette(c("white","grey95","red"))(length(break3))
+pt1.rna=pheatmap(
+  mat               = dynamics.rna,
+  border_color      = NA,
+  show_colnames     = TRUE, show_rownames     = TRUE,
+  cluster_rows=FALSE, cluster_cols = FALSE, 
+  drop_levels       = TRUE,
+  fontsize_row = 8, fontsize_col = 5, silent = TRUE,
+  #annotation_row    = anno$row, annotation_colors = anno$color,
+  main              = paste0("gene expression dynamics"),
+  color = col3,
+  breaks = break3
+)
+plot.new(); print(pt1.rna)
+
+save_pheatmap_pdf(pt1.rna, paste0("~/figure_drafts/fig3_metaGeneHeatmap_10bins_",origin,".pdf"), width=6, height=5)
+```
+
+### pseudobin heatmap (without lateChondrocytes)
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+# plot
+pt1.rna=pheatmap(
+  mat               = dynamics.rna[,c(1:10)],
+  border_color      = NA,
+  show_colnames     = TRUE, show_rownames     = TRUE,
+  cluster_rows=FALSE, cluster_cols = FALSE, 
+  drop_levels       = TRUE,
+  fontsize_row = 8, fontsize_col = 5, silent = TRUE,
+  #annotation_row    = anno$row, annotation_colors = anno$color,
+  main              = paste0("gene expression dynamics"),
+  color = col3,
+  breaks = break3
+)
+plot.new(); print(pt1.rna)
+
+save_pheatmap_pdf(pt1.rna, paste0("~/figure_drafts/fig3_metaGeneHeatmap_10bins_",origin,"_cutLateChondrocytes.pdf"), width=6, height=5)
+```
+
+## log
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+sessionInfo()
+```
+

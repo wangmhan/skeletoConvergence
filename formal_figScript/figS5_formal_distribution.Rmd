@@ -1,0 +1,192 @@
+---
+title: "figure5_venn"
+output: 
+  html_document:
+    df_print: paged
+  html_notebook:
+editor_options:
+  chunk_output_type: inline
+---
+
+for panel A-F
+
+```{r setup, message=FALSE, warning=FALSE, echo=FALSE}
+# packages
+library(ggplot2); library(patchwork); library(gridExtra)
+library(RColorBrewer); library(dplyr)
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+# function
+#filter to keep significant highly correlated ones
+filter=function(p2g=data,pos=FALSE,cor=0.5,padj=0.05,varq=0.25){
+  p2g=p2g[!is.na(p2g$FDR) & abs(p2g$Correlation) > cor & p2g$FDR < padj & (p2g$VarQRNA > varq & p2g$VarQATAC > varq),]
+  if(pos){p2g=p2g[p2g$Correlation > 0,]}
+  p2g$trend="Pos"
+  p2g[p2g$Correlation < 0,"trend"]="Neg"
+  p2g$unique=paste0(p2g$geneName,",",p2g$peakName,",",p2g$trend)
+  p2g$gnamePKname=paste0(p2g$geneName,",",p2g$peakName)
+  print(table(p2g$trend))
+  return(p2g)
+}
+
+```
+
+## get p2g links
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+pos=FALSE;cor=0.5 
+p2g.all=list(); p2g.lns=list()
+padj=0.05
+
+## nasal
+p2g=list()
+p2g[["archr"]]=readRDS("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/peak2gene/nasal_mesenchyme_p2glinks_ArchR.rds")[["full"]]
+
+p2g.sig=p2g
+p2g.sig[["archr"]]=filter(p2g=p2g[["archr"]],pos = pos ,cor=cor,padj=padj,varq=0.25);dim(p2g.sig[["archr"]])
+p2g.sig$archr$peakName=gsub("_","-",p2g.sig$archr$peakName)
+p2g.lns[["nasal"]]=p2g.sig[["archr"]]
+p2g.all[["nasal"]]=filter(p2g=p2g[["archr"]],pos = pos ,cor=0,padj=1,varq=0.25)
+
+## somite
+p2g=list()
+p2g[["archr"]]=readRDS("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/peak2gene/somite_mesenchyme_p2glinks_ArchR.rds")[["full"]]
+
+p2g.sig=p2g
+p2g.sig[["archr"]]=filter(p2g=p2g[["archr"]],pos = pos ,cor=cor,padj=padj,varq=0.25);dim(p2g.sig[["archr"]])
+p2g.sig$archr$peakName=gsub("_","-",p2g.sig$archr$peakName)
+p2g.lns[["somite"]]=p2g.sig[["archr"]]
+p2g.all[["somite"]]=filter(p2g=p2g[["archr"]],pos = pos ,cor=0,padj=1,varq=0.25)
+
+## limb
+p2g=list()
+p2g[["archr"]]=readRDS("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/peak2gene/limb_mesenchyme_p2glinks_ArchR.rds")[["full"]]
+
+p2g.sig=p2g
+p2g.sig[["archr"]]=filter(p2g=p2g[["archr"]],pos = pos ,cor=cor,padj=padj,varq=0.25);dim(p2g.sig[["archr"]])
+p2g.sig$archr$peakName=gsub("_","-",p2g.sig$archr$peakName)
+p2g.lns[["limb"]]=p2g.sig[["archr"]]
+p2g.all[["limb"]]=filter(p2g=p2g[["archr"]],pos = pos ,cor=0,padj=1,varq=0.25)
+
+# remove several duplicated ones
+p2g.lns$nasal=p2g.lns$nasa[!duplicated(p2g.lns$nasal$unique),]
+p2g.lns$somite=p2g.lns$somite[!duplicated(p2g.lns$somite$unique),]
+p2g.lns$limb=p2g.lns$limb[!duplicated(p2g.lns$limb$unique),]
+
+```
+
+## show the number of links/target gene, & number of target genes/link
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+# the number of links/target gene
+target=unique(c(p2g.lns$nasal$geneName,p2g.lns$somite$geneName,p2g.lns$limb$geneName))
+gene.mtx=data.frame(nasal=rep(0,length(target)),
+                    somite=rep(0,length(target)),
+                    limb=rep(0,length(target)))
+rownames(gene.mtx)=target
+
+gene.mtx$nasal=table(p2g.lns$nasal$geneName)[target]
+gene.mtx$somite=table(p2g.lns$somite$geneName)[target]
+gene.mtx$limb=table(p2g.lns$limb$geneName)[target]
+gene.mtx[is.na(gene.mtx)]=0
+
+gene.mtx=gene.mtx[order(-rowSums(gene.mtx)),]
+#the number of target gene shared among lns
+dim(gene.mtx[gene.mtx$nasal>=1 & gene.mtx$somite>=1 & gene.mtx$limb>=1,])
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.width=5}
+my.origins=c("limb","somite","nasal")
+
+pdf(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts/figS5/p2g_distribution_CRE.pdf"),width = 6,height = 4)
+for(i in 1:length(my.origins)){
+  tmp.origin=my.origins[i]
+  tmp.gene=gene.mtx[gene.mtx[,tmp.origin]>=1,]
+  pknum=data.frame(gene=rownames(tmp.gene), cisNum=as.numeric(tmp.gene[,tmp.origin]))
+  p1=ggplot(pknum,aes(x=cisNum))+
+    geom_histogram(color="black", fill="lightblue",binwidth = 1) +
+    theme_classic() + ggtitle(paste0("",tmp.origin)) +
+    xlab("number of CREs per gene")
+  print(p1)
+}
+dev.off()
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.width=5}
+cre=unique(c(p2g.lns$nasal$peakName,p2g.lns$somite$peakName,p2g.lns$limb$peakName))
+peak.mtx=data.frame(nasal=rep(0,length(cre)),
+                    somite=rep(0,length(cre)),
+                    limb=rep(0,length(cre)))
+rownames(peak.mtx)=cre
+
+peak.mtx$nasal=table(p2g.lns$nasal$peakName)[cre]
+peak.mtx$somite=table(p2g.lns$somite$peakName)[cre]
+peak.mtx$limb=table(p2g.lns$limb$peakName)[cre]
+peak.mtx[is.na(peak.mtx)]=0
+
+my.origins=c("limb","somite","nasal")
+pdf(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts/figS5/p2g_distribution_target.pdf"),width = 6,height = 4)
+for(i in 1:length(my.origins)){
+  tmp.origin=my.origins[i]
+  tmp.peak=peak.mtx[peak.mtx[,tmp.origin]>=1,]
+  pknum=data.frame(gene=rownames(tmp.peak), cisNum=as.numeric(tmp.peak[,tmp.origin]))
+  p1=ggplot(pknum,aes(x=cisNum))+
+    geom_histogram(color="black", fill="lightblue",binwidth = 1) +
+    theme_classic() + ggtitle(paste0("",tmp.origin)) +
+    xlab("number of targets per CRE")
+  print(p1)
+}
+dev.off()
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+pdf(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts/figS5/p2g_distribution_correlation.pdf"),width = 6,height = 4)
+for(i in 1:length(my.origins)){
+  tmp.origin=my.origins[i]
+  pknum=data.frame(gene=p2g.all[[tmp.origin]], absCor=abs(p2g.all[[tmp.origin]]$Correlation))
+  p1=ggplot(pknum,aes(x=absCor))+
+    geom_histogram(color="black", fill="lightblue",binwidth = 0.05) +
+    theme_classic() + ggtitle(paste0("",tmp.origin)) +
+    xlab("distribution of abs(correlation coefficient)")
+  print(p1)
+}
+dev.off()
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+pdf(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts/figS5/p2g_distribution_correlation_cutoff0.5.pdf"),width = 6,height = 4)
+for(i in 1:length(my.origins)){
+  tmp.origin=my.origins[i]
+  pknum=data.frame(gene=p2g.lns[[tmp.origin]], absCor=abs(p2g.lns[[tmp.origin]]$Correlation))
+  p1=ggplot(pknum,aes(x=absCor))+
+    geom_histogram(color="black", fill="lightblue",binwidth = 0.02) +
+    theme_classic() + ggtitle(paste0("",tmp.origin)) +
+    xlab("distribution of abs(correlation coefficient)")
+  #print(p1)
+  
+  # use the alternative, otherwise the height of the first column is not reasonable
+  pknum=data.frame(gene=p2g.all[[tmp.origin]], absCor=abs(p2g.all[[tmp.origin]]$Correlation))
+  p2=ggplot(pknum,aes(x=absCor))+
+    geom_histogram(color="black", fill="lightblue",binwidth = 0.02) +
+    theme_classic() + ggtitle(paste0("",tmp.origin)) +
+    xlab("distribution of abs(correlation coefficient)") +
+    xlim(c(0.48,0.9)) #check the max(p2g.all[[tmp.origin]]$Correlation)
+  print(p2)
+}
+dev.off()
+
+```
+
+
+## log
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+sessionInfo()
+```
+

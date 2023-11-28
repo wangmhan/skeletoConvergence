@@ -1,0 +1,172 @@
+---
+title: "figure1_plot"
+output: 
+  html_document:
+    df_print: paged
+  html_notebook:
+editor_options:
+  chunk_output_type: inline
+---
+
+for panel C-E
+
+```{r setup, message=FALSE, warning=FALSE, echo=FALSE}
+# packages
+library(Seurat);library(ggplot2)
+library(dplyr);library(RColorBrewer)
+library(viridis);library(gridExtra)
+
+```
+
+## data
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+#add metadata
+meta=readRDS("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/clustering/meta_all.rds")
+
+# scRNA data path
+rna_path <- "/scicore/home/tschoppp/GROUP/lab/Chris.shared/for.Menghan/"
+my.files=paste0(rna_path,c("forelimb_seurat_290420.rds","frontonasal_seurat_290420.rds","somites_seurat_290420.rds"))
+subset_path <- "/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/clustering/"
+my.subfiles=paste0(subset_path,c("subset_limb.rds","subset_nasal.rds","subset_somite.rds"))
+
+my.data=list(); ctypes=list(); mcolors=list()
+my.subdata=list(); subctypes=list(); msubcolors=list()
+markers=list();submarkers=list()
+
+grey=brewer.pal(n = 9, name = "Greys")
+colfunc <- colorRampPalette(c(grey[3],grey[7])) #plot(rep(1,10),col=colfunc(10),pch=19,cex=3)
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+#reorder celltype
+rlevels=list()
+
+#place to optimize: order of celltype
+origin="nasal"
+rlevels[[origin]]=c("cranialMesenchyme","CyclingCells","proliferatingNeurons","Neurons","NeuronalCells","Skin","Vessels","Blood")
+
+origin="somite"
+rlevels[[origin]]=c("Sclerotome","Dermomyotome","lateralPlateMesoderm","neuralTubeProgenitors","Neurons","neuralCrest","intermediateMesoderm","mitochondrialRich","Skin","Vessels","Blood")
+
+origin="limb"
+rlevels[[origin]]=c("Mesenchyme","skeletogenicCells","posteriorMesenchyme","CyclingCells","Muscle","Skin","Leukocytes","Blood")
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.width=12,fig.height=8}
+###############
+# panel 1C
+#embeddings: tSNE
+
+origin="nasal"
+my.data[[origin]] = readRDS(my.files[2]) #load in
+my.meta=meta[[origin]]
+my.data[[origin]] = AddMetaData(my.data[[origin]],my.meta[rownames(my.data[[origin]]@meta.data),])
+
+Idents(my.data[[origin]])=my.data[[origin]]@meta.data$annotation_broad
+Idents(my.data[[origin]])=factor(Idents(my.data[[origin]]),
+                                 levels=rlevels[[origin]])
+
+#place to optimize: color by ASCII code
+#grey used gradient
+mcolors[[origin]]=c("#DC0078", "#FFC125",
+                    "#54FF9F", "#2E8B57",
+                    "#32CD32", "#A020F0",
+                    "#8B3E2F", "#BEBEBE")
+mcolors[[origin]]=c("#DC0078",colfunc(7))
+names(mcolors[[origin]])=rlevels[[origin]]
+
+my.data[[origin]]=RunUMAP(my.data[[origin]],dims = 1:20, reduction = "pca")
+
+p1c.1=DimPlot(my.data[[origin]],label = T,reduction = "tsne",cols = mcolors[[origin]]) +ggtitle(paste0(origin,": broad"))+theme(aspect.ratio=1)
+p1c.2=DimPlot(my.data[[origin]],label = T,reduction = "xtsne",cols = mcolors[[origin]]) +ggtitle(paste0(origin,": broad"))+theme(aspect.ratio=1)
+p1c.3=DimPlot(my.data[[origin]],label = T,reduction = "umap",cols = mcolors[[origin]]) +ggtitle(paste0(origin,": broad"))+theme(aspect.ratio=1)
+p1c.1;p1c.2;p1c.3
+pdf("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/figure_drafts/figure1_C.pdf",height = 6,width = 6)
+p1c.1+NoLegend()
+p1c.2+NoLegend()
+p1c.3+NoLegend()
+dev.off()
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.width=12,fig.height=8}
+###############
+# panel 1D
+origin="somite"
+my.data[[origin]] = readRDS(my.files[3]) #load in
+my.meta=meta[[origin]]
+my.data[[origin]] = AddMetaData(my.data[[origin]],my.meta[rownames(my.data[[origin]]@meta.data),])
+
+Idents(my.data[[origin]])=my.data[[origin]]@meta.data$annotation_broad
+Idents(my.data[[origin]])=factor(Idents(my.data[[origin]]),
+                                 levels=rlevels[[origin]])
+
+#place to optimize: color by ASCII code
+mcolors[[origin]]=c("#008FD4","#CD0000","#8B1C62","#54FF9F","#2E8B57",
+                     "#32CD32","#B03060","#104E8B","#A020F0","#8B3E2F",
+                     "#BEBEBE")
+mcolors[[origin]]=c("#008FD4",colfunc(10))
+names(mcolors[[origin]])=rlevels[[origin]]
+
+my.data[[origin]]=RunUMAP(my.data[[origin]],dims = 1:20, reduction = "pca")
+
+p1d.1=DimPlot(my.data[[origin]],label = T,reduction = "tsne",cols = mcolors[[origin]]) +ggtitle(paste0(origin,": broad"))+theme(aspect.ratio=1)
+p1d.2=DimPlot(my.data[[origin]],label = T,reduction = "xtsne",cols = mcolors[[origin]]) +ggtitle(paste0(origin,": broad"))+theme(aspect.ratio=1)
+p1d.3=DimPlot(my.data[[origin]],label = T,reduction = "umap",cols = mcolors[[origin]]) +ggtitle(paste0(origin,": broad"))+theme(aspect.ratio=1)
+p1d.1;p1d.2;p1d.3
+pdf("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/figure_drafts/figure1_D.pdf",height = 6,width = 6)
+p1d.1+NoLegend()
+p1d.2+NoLegend()
+p1d.3+NoLegend()
+dev.off()
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.width=12,fig.height=8}
+###############
+# panel 1E
+origin="limb"
+my.data[[origin]] = readRDS(my.files[1]) #load in
+my.meta=meta[[origin]]
+my.data[[origin]] = AddMetaData(my.data[[origin]],my.meta[rownames(my.data[[origin]]@meta.data),])
+
+Idents(my.data[[origin]])=my.data[[origin]]@meta.data$annotation_broad
+Idents(my.data[[origin]])=factor(Idents(my.data[[origin]]),
+                                 levels=rlevels[[origin]])
+
+#place to optimize: color by ASCII code
+mcolors[[origin]]=c("#FFD01F","#FFA309","#FF7F50","#FF0000",
+                     "#1E90FF","#A020F0","#CD0000","#BEBEBE")
+mcolors[[origin]]=c("#FFD01F","#FFA309",colfunc(6))
+names(mcolors[[origin]])=rlevels[[origin]]
+
+my.data[[origin]]=RunUMAP(my.data[[origin]],dims = 1:20, reduction = "pca")
+
+p1e.1=DimPlot(my.data[[origin]],label = T,reduction = "tsne",cols = mcolors[[origin]]) +ggtitle(paste0(origin,": broad"))+theme(aspect.ratio=1)
+p1e.2=DimPlot(my.data[[origin]],label = T,reduction = "xtsne",cols = mcolors[[origin]]) +ggtitle(paste0(origin,": broad"))+theme(aspect.ratio=1)
+p1e.3=DimPlot(my.data[[origin]],label = T,reduction = "umap",cols = mcolors[[origin]]) +ggtitle(paste0(origin,": broad"))+theme(aspect.ratio=1)
+p1e.4=DimPlot(my.data[[origin]],label = T,reduction = "pca",group.by = "orig.ident") +
+  ggtitle(paste0(origin,": broad"))+theme(aspect.ratio=1)+
+  NoLegend()
+p1e.5=ElbowPlot(my.data[[origin]])
+p1e.1;p1e.2;p1e.3
+pdf("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/figure_drafts/figure1_E.pdf",height = 6,width = 6)
+p1e.1+NoLegend()
+p1e.2+NoLegend()
+p1e.3+NoLegend()
+p1e.4;p1e.5
+dev.off()
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+sessionInfo()
+```
+

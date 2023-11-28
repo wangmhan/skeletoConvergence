@@ -1,0 +1,250 @@
+---
+title: "scATAC_featurePlot"
+output: 
+  html_document:
+    df_print: paged
+  html_notebook:
+editor_options:
+  chunk_output_type: inline
+---
+ 
+for panel D
+
+```{r setup, message=FALSE, warning=FALSE, echo=FALSE}
+library(Seurat); library(Signac);library(ggplot2)
+library(reshape2); library(dplyr); library(plyr)
+library(TFBSTools); library(RColorBrewer)
+library(pheatmap);library(viridisLite)
+
+set.seed(1234)
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+#reorder celltype
+subalevels=list()
+origin="nasal"
+subalevels[[origin]]=c("neuralcrestDerivedMesenchyme","mesenchymeActiveCell","chondrocytes","amb_periocularMesenchyme","eyeConnectiveTissue")
+origin="somite"
+subalevels[[origin]]=c("somite2","somite1","amb_somite","chondrocytes")
+origin="limb"
+subalevels[[origin]]=c("WNT5AMesenchyme","anteriorMesenchyme","mesenchymeORnsConnectiveTissue","amb_mesenchymeORnsConnectiveTissue","chondrocytes","lateChondrocytes","SHOX2Mesenchyme")
+
+
+my.col1.v1=c(viridis(6)[1],viridis(6)[1],viridis(6)[2],viridis(6)[3], viridis(6)[4], viridis(6)[5], viridis(6)[6], viridis(6)[6])
+my.col1.v2=c("gray90","gray90","gray80","yellow", "orange", "red", "darkred", "darkred")
+my.col2=brewer.pal(n = 9, name ="Blues")[c(1,1,2,4,6,8,9,9)]
+
+```
+
+## read in motif set
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+mf2tfnames.all=readRDS(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/motifEnrich/all_denovoMotifs_mf2tfnames.rds"))
+
+tfs=read.table("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/Gallus_gallus_TF_AnimalTFDB3_edited.txt",sep="\t",header = TRUE,stringsAsFactors = FALSE)
+tfs$Symbol=toupper(tfs$Symbol)
+
+mf.all=readRDS(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/motifEnrich/LNS_denovoMotifs_assigned.rds"))
+names(mf.all)=gsub("limb\\.L\\.","",names(mf.all))
+names(mf.all)=gsub("nasal\\.N\\.","",names(mf.all))
+names(mf.all)=gsub("somite\\.S\\.","",names(mf.all))
+
+``` 
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+#with pseudotime correction, without conflict among origins.
+mf.anno=readRDS("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/motifEnrich/motifUnion_originConsist.rds")
+mfunion.select=rbind(mf.anno$nasal,mf.anno$somite,mf.anno$limb)
+mfunion.select$unique=paste0(mfunion.select$origin,"_",
+                           sapply(strsplit(mfunion.select$motifid,"-"),"[",1),"_",
+                           sapply(strsplit(mfunion.select$motifid,"-"),"[",2),"_",
+                           mfunion.select$tfname)
+
+mfunion.select$mfnew.unique=""
+for(i in 1:nrow(mfunion.select)){
+  tmp.id=mfunion.select$motifid[i]
+  mfunion.select$mfnew.unique[i]=mf2tfnames.all$overall[mf2tfnames.all$overall$motifid==tmp.id,"mfnew.unique"]
+}
+
+mfunion.select$mfnew.version1=mf2tfnames.all$overall[mfunion.select$motifid,"mfnew.unique"]
+
+```
+
+## nasal
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+samples="nasal"
+
+subset.atac=readRDS(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/integration/",samples,"_atac_intgtFine010721_activity.rds"))
+my.meta=readRDS(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/integration/",samples,"_atac_integrated010721_meta.rds"))
+subset.atac=AddMetaData(subset.atac,metadata = my.meta[rownames(subset.atac@meta.data),c("broad","annotation_broad","fine","annotation_fine")],col.name = c("broad","annotation_broad","fine","annotation_fine"))
+
+#read in chromvar motif activity
+chromvar.mtx=read.table(gzfile(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/motifEnrich/",samples,"_chromvarDenovo-LNSmotifs.txt.gz")), sep = "\t")
+colnames(chromvar.mtx)=gsub("\\.1","-1",colnames(chromvar.mtx))
+rownames(chromvar.mtx)=substr(rownames(chromvar.mtx),1,20)
+rownames(chromvar.mtx)=gsub("sub-","sub",rownames(chromvar.mtx))
+chromvar.mtx=as.matrix(chromvar.mtx)
+subset.atac@active.assay="activity"
+subset.atac[["chromvar"]]=CreateAssayObject(data=chromvar.mtx[,colnames(subset.atac)])
+
+Idents(subset.atac)=subset.atac$annotation_fine
+
+#change to TF name
+chromvar.tmp=chromvar.mtx
+chromvar.tmp=chromvar.tmp[mfunion.select$motifid,];dim(chromvar.tmp)
+rownames(chromvar.tmp)=mfunion.select$unique
+subset.atac[["chromvar.name"]]=CreateAssayObject(data=chromvar.tmp[,colnames(subset.atac)])
+
+subset.atac@active.assay="chromvar.name"
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.width=4}
+mfunion.select[mfunion.select$tfname %in% c("SOX9","ZIC2") & mfunion.select$origin %in% c("N","L"),c("unique","mfnew.version1")]
+
+p1=FeaturePlot(
+  object = subset.atac,
+  features = gsub("_","-","L_clssub5_1_SOX9"),
+  min.cutoff = 'q5', max.cutoff = 'q95',
+  order=T,reduction = "tsne",
+  pt.size = 0.1
+) + ggtitle("SOX9") + theme(aspect.ratio=1) & scale_colour_gradientn(colours = my.col2)
+
+p1.1=FeaturePlot(
+  object = subset.atac,
+  features = gsub("_","-","N_clssub3_3_ZIC2"),
+  min.cutoff = 'q5', max.cutoff = 'q95',
+  order=T,reduction = "tsne",
+  pt.size = 0.1
+) + ggtitle("ZIC2") + theme(aspect.ratio=1) & scale_colour_gradientn(colours = my.col2)
+
+p1;p1.1
+
+pdf(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts/figS4/motif_featurePlot_",samples,".pdf"),height = 6,width = 6)
+p1;p1.1
+dev.off()
+
+```
+
+## somite
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+samples="somite"
+
+subset.atac=readRDS(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/integration/",samples,"_atac_intgtFine010721_activity.rds"))
+my.meta=readRDS(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/integration/",samples,"_atac_integrated010721_meta.rds"))
+subset.atac=AddMetaData(subset.atac,metadata = my.meta[rownames(subset.atac@meta.data),c("broad","annotation_broad","fine","annotation_fine")],col.name = c("broad","annotation_broad","fine","annotation_fine"))
+
+#read in chromvar motif activity
+chromvar.mtx=read.table(gzfile(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/motifEnrich/",samples,"_chromvarDenovo-LNSmotifs.txt.gz")), sep = "\t")
+colnames(chromvar.mtx)=gsub("\\.1","-1",colnames(chromvar.mtx))
+rownames(chromvar.mtx)=substr(rownames(chromvar.mtx),1,20)
+rownames(chromvar.mtx)=gsub("sub-","sub",rownames(chromvar.mtx))
+chromvar.mtx=as.matrix(chromvar.mtx)
+subset.atac@active.assay="activity"
+subset.atac[["chromvar"]]=CreateAssayObject(data=chromvar.mtx[,colnames(subset.atac)])
+
+Idents(subset.atac)=subset.atac$annotation_fine
+
+#change to TF name
+chromvar.tmp=chromvar.mtx
+chromvar.tmp=chromvar.tmp[mfunion.select$motifid,];dim(chromvar.tmp)
+rownames(chromvar.tmp)=mfunion.select$unique
+subset.atac[["chromvar.name"]]=CreateAssayObject(data=chromvar.tmp[,colnames(subset.atac)])
+
+subset.atac@active.assay="chromvar.name"
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.width=4}
+mfunion.select[mfunion.select$tfname %in% c("SOX9","MEIS1") & mfunion.select$origin %in% c("S","L"),c("unique","mfnew.version1")]
+
+p1=FeaturePlot(
+  object = subset.atac,
+  features = gsub("_","-","L_clssub5_1_SOX9"),
+  min.cutoff = 'q5', max.cutoff = 'q95',
+  order=T,reduction = "tsne",
+  pt.size = 0.1
+) + ggtitle("SOX9") + theme(aspect.ratio=1) & scale_colour_gradientn(colours = my.col2)
+
+p1.1=FeaturePlot(
+  object = subset.atac,
+  features = gsub("_","-","S_clsMschym_8_MEIS1"),
+  min.cutoff = 'q5', max.cutoff = 'q95',
+  order=T,reduction = "tsne",
+  pt.size = 0.1
+) + ggtitle("MEIS1") + theme(aspect.ratio=1) & scale_colour_gradientn(colours = my.col2)
+p1;p1.1
+
+pdf(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts/figS4/motif_featurePlot_",samples,".pdf"),height = 6,width = 6)
+p1;p1.1
+dev.off()
+
+```
+
+## limb
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+samples="limb"
+
+subset.atac=readRDS(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/integration/",samples,"_atac_intgtFine010721_activity.rds"))
+my.meta=readRDS(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/integration/",samples,"_atac_integrated010721_meta.rds"))
+subset.atac=AddMetaData(subset.atac,metadata = my.meta[rownames(subset.atac@meta.data),c("broad","annotation_broad","fine","annotation_fine")],col.name = c("broad","annotation_broad","fine","annotation_fine"))
+
+#read in chromvar motif activity
+chromvar.mtx=read.table(gzfile(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/motifEnrich/",samples,"_chromvarDenovo-LNSmotifs.txt.gz")), sep = "\t")
+colnames(chromvar.mtx)=gsub("\\.1","-1",colnames(chromvar.mtx))
+rownames(chromvar.mtx)=substr(rownames(chromvar.mtx),1,20)
+rownames(chromvar.mtx)=gsub("sub-","sub",rownames(chromvar.mtx))
+chromvar.mtx=as.matrix(chromvar.mtx)
+subset.atac@active.assay="activity"
+subset.atac[["chromvar"]]=CreateAssayObject(data=chromvar.mtx[,colnames(subset.atac)])
+
+Idents(subset.atac)=subset.atac$annotation_fine
+
+#change to TF name
+chromvar.tmp=chromvar.mtx
+chromvar.tmp=chromvar.tmp[mfunion.select$motifid,];dim(chromvar.tmp)
+rownames(chromvar.tmp)=mfunion.select$unique
+subset.atac[["chromvar.name"]]=CreateAssayObject(data=chromvar.tmp[,colnames(subset.atac)])
+
+subset.atac@active.assay="chromvar.name"
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.width=4}
+mfunion.select[mfunion.select$tfname %in% c("SOX9","LH-2A") & mfunion.select$origin %in% c("L"),c("unique","mfnew.version1")]
+
+p1=FeaturePlot(
+  object = subset.atac,
+  features = gsub("_","-","L_clssub5_1_SOX9"),
+  min.cutoff = 'q5', max.cutoff = 'q95',
+  order=T,reduction = "tsne",
+  pt.size = 0.1
+) + ggtitle("SOX9") + theme(aspect.ratio=1) & scale_colour_gradientn(colours = my.col2)
+
+p1.1=FeaturePlot(
+  object = subset.atac,
+  features = gsub("_","-","L_clssub1_1_LH-2A"),
+  min.cutoff = 'q5', max.cutoff = 'q95',
+  order=T,reduction = "tsne",
+  pt.size = 0.1
+) + ggtitle("LH-2A") + theme(aspect.ratio=1) & scale_colour_gradientn(colours = my.col2)
+p1;p1.1
+
+pdf(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts/figS4/motif_featurePlot_",samples,".pdf"),height = 6,width = 6)
+p1;p1.1
+dev.off()
+
+```
+
+## log
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+sessionInfo()
+```

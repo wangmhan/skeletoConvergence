@@ -1,0 +1,119 @@
+---
+title: "figureS2_plot"
+output: 
+  html_document:
+    df_print: paged
+  html_notebook:
+editor_options:
+  chunk_output_type: inline
+---
+
+for panel F-H
+
+```{r setup, message=FALSE, warning=FALSE, echo=FALSE}
+# packages
+library(pheatmap); library(RColorBrewer);library(gridExtra)
+
+```
+
+###############
+## data
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+#gene name info
+gene.info=read.table("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/ensembl97_geneinfo.txt", sep="\t",header = TRUE,row.names = 1,stringsAsFactors = FALSE)
+gene.info[gene.info$genename=="","genename"]=rownames(gene.info[gene.info$genename=="",])
+gene.info$genename=toupper(gene.info$genename)
+
+# scATAC data path
+atac_path <- "/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/integration/"
+
+grey=brewer.pal(n = 9, name = "Greys")
+colfunc <- colorRampPalette(c(grey[3],grey[7])) #plot(rep(1,10),col=colfunc(10),pch=19,cex=3)
+
+```
+
+## nnls heatmap (fine)
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+#can optimize set same min & maximum value AND the order of the columns
+#colors=colorRampPalette(rev(brewer.pal(n = 7, name ="RdYlBu")))(101)
+#colors=magma(101)
+#colors=c("FAE563", "CABB74", "958F7A", "686A70", "354568", "1B264F")
+colors=cividis(101)
+#breaks=seq(0,0.6,0.006)
+
+save_pheatmap_pdf <- function(x, filename, width=6, height=4) {
+   stopifnot(!missing(x))
+   stopifnot(!missing(filename))
+   pdf(filename, width=width, height=height)
+   grid::grid.newpage()
+   grid::grid.draw(x$gtable)
+   dev.off()
+}
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.width=6,fig.height=4}
+origin="nasal"
+
+cmatrix=read.table(paste0(atac_path,origin,"_nnlsScore_fine.txt"),stringsAsFactors = F)
+cname=gsub("X","",colnames(cmatrix))
+cmatrix=t(apply(cmatrix,1, as.numeric));colnames(cmatrix)=cname
+breaks=seq(0,max(cmatrix),max(cmatrix)/100)
+
+#place to optimize:change order
+orders=c(1,2,4,3,5,6);cmatrix=cmatrix[,orders]
+p=pheatmap(cmatrix,cluster_rows = F,cluster_cols = F,
+         color = colors,
+         breaks = breaks)
+p
+
+save_pheatmap_pdf(p,paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts/figS2/figureS2_fineNNLS_",origin,".pdf"))
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+origin="somite"
+
+cmatrix=read.table(paste0(atac_path,origin,"_nnlsScore_fine.txt"),stringsAsFactors = F)
+cname=gsub("X","",colnames(cmatrix))
+cmatrix=t(apply(cmatrix,1, as.numeric));colnames(cmatrix)=cname
+breaks=seq(0,max(cmatrix),max(cmatrix)/100)
+
+#place to optimize:change order
+orders=c(1:6);cmatrix=cmatrix[,orders]
+p=pheatmap(cmatrix,cluster_rows = F,cluster_cols = F,
+         color = colors,
+         breaks = breaks)
+p
+
+save_pheatmap_pdf(p,paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts/figS2/figureS2_fineNNLS_",origin,".pdf"))
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+origin="limb"
+
+cmatrix=read.table(paste0(atac_path,origin,"_nnlsScore_fine.txt"),stringsAsFactors = F)
+cname=gsub("X","",colnames(cmatrix))
+cmatrix=t(apply(cmatrix,1, as.numeric));colnames(cmatrix)=cname
+breaks=seq(0,max(cmatrix),max(cmatrix)/100)
+
+#place to optimize:change order
+orders=c(1:3,7,5,6,4);cmatrix=cmatrix[,orders]
+p=pheatmap(cmatrix,cluster_rows = F,cluster_cols = F,
+         color = colors,
+         breaks = breaks)
+p
+
+save_pheatmap_pdf(p,paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts/figS2/figureS2_fineNNLS_",origin,".pdf"))
+
+```
+
+## sessioninfo
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+sessionInfo()
+```
+
+

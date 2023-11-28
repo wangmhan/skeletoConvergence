@@ -1,0 +1,287 @@
+---
+title: "figure5_enrichment"
+output: 
+  html_document:
+    df_print: paged
+  html_notebook:
+editor_options:
+  chunk_output_type: inline
+---
+
+for panel G-I
+
+```{r setup, message=FALSE, warning=FALSE, echo=FALSE}
+# packages
+library(ggplot2); library(patchwork); library(gridExtra)
+library(RColorBrewer); library(dplyr)
+library(clusterProfiler);library(org.Gg.eg.db)
+library(rGREAT); library(Signac)
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+get_go <- function(genes = gene, from="SYMBOL", ont = "ALL", top=10, fill="#F47321",main=""){ #"BP","MF","CC"
+  gene.id <- bitr(genes, fromType = from,
+                  toType = c("ENTREZID"), #"ENSEMBL"
+                  OrgDb = org.Gg.eg.db)
+  write_go <- enrichGO(gene      = gene.id$ENTREZID,
+                       OrgDb         = org.Gg.eg.db,
+                       keyType       = "ENTREZID", #ENSEMBL, ENTREZID, SYMBOL
+                       ont           = ont, 
+                       pAdjustMethod = "BH",
+                       pvalueCutoff  = 0.05, #qvalueCutoff  = 0.05,
+                       readable      = TRUE)
+  if(nrow(as.data.frame(write_go)) == 0){
+    write_go <- NULL;return(write_go)
+  }else{ 
+    if(ont != "ALL"){
+      write_go <- simplify(write_go, cutoff=0.7, by="p.adjust", select_fun=min)
+    }
+    write_go.top <- as.data.frame(write_go[1:top,])
+    write_go.top$p.adjLog <- -log10(write_go.top$p.adjust)
+    c <- ggplot(write_go.top) + theme_bw() +
+      aes(x = reorder(Description, p.adjLog), y = p.adjLog) +
+      geom_col(position = "dodge", fill = fill) +
+      ggtitle(main) +
+      xlab("Pathways") + ylab("Negative Log adjusted P-val") +
+      coord_flip() +
+      theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+            panel.background = element_blank(), axis.line = element_line(colour = "black"),
+            panel.border = element_blank(),text = element_text(size=10))
+    print(c)
+    return(write_go); 
+  }
+}
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+my.origins=c("limb","somite","nasal")
+
+cls.retain=list()
+cls.retain[["nasal"]]=c("neuralcrestDerivedMesenchyme","eyeConnectiveTissue","chondrocytes")
+cls.retain[["somite"]]=c("somite2","somite1","chondrocytes")
+cls.retain[["limb"]]=c("WNT5AMesenchyme","amb_mesenchymeORnsConnectiveTissue","chondrocytes","lateChondrocytes")
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+
+```
+
+## nasal
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+origin="nasal"
+k.select=length(cls.retain[[origin]])
+
+peak.cls=read.table(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/peak2gene/p2gLink_scatacPeakCluster_k",k.select,"_",origin,".txt"),sep = "\t");table(peak.cls$hkmeans)
+peak.cls=peak.cls[order(peak.cls$hkmeans,-peak.cls$Correlation),]
+peak.cls$p2gID=rownames(peak.cls)
+
+peak.cls$hkmeans.str=""
+peak.cls[peak.cls$hkmeans==1,"hkmeans.str"]="k3"
+peak.cls[peak.cls$hkmeans==2,"hkmeans.str"]="k2"
+peak.cls[peak.cls$hkmeans==3,"hkmeans.str"]="k1"
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.width=8}
+#rGREAT: peak enrichment
+res.great=NULL
+
+pdf(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts/figS5/p2gLinks_topEnrichment_k",k.select,"_",origin,"_v2.pdf"),width = 6,height = 4)
+for(i in unique(peak.cls$hkmeans.str)){
+  selected=c(i)
+  p2g.gr=StringToGRanges(peak.cls[peak.cls$hkmeans.str %in% selected,"peak"],sep = c(":","-"))
+  res=great(p2g.gr,"GO:BP", "TxDb.Ggallus.UCSC.galGal6.refGene")
+  tb = getEnrichmentTable(res)
+  print(head(tb,n=20)) #ordered by p value, not fold enrichment
+  
+  #plot
+  tb$p.adjLog=-log10(tb$p_adjust); fill="#F47321"
+  tb$hkmeans=selected
+  c <- ggplot(tb[1:10,]) + theme_bw() +
+    aes(x = reorder(description, p.adjLog), y = p.adjLog) +
+    geom_col(position = "dodge", fill = fill) +
+    ggtitle(paste0("rGREAT, hkmeans: ",i)) +
+    xlab("Pathways") + ylab("Negative Log adjusted P-val") +
+    coord_flip() +
+    theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+          panel.background = element_blank(), axis.line = element_line(colour = "black"),
+          panel.border = element_blank(),text = element_text(size=10))
+  print(c)
+  res.great=rbind(res.great,tb)
+}
+
+# GO enrichment
+# GO enrichment
+res.go=NULL
+for(i in unique(peak.cls$hkmeans.str)){
+  selected=c(i)
+  
+  #plot
+  go.tempo.n=get_go(genes = peak.cls[peak.cls$hkmeans.str %in% selected,"gene"], from="SYMBOL", ont = "BP", top=10, fill="#F47321",main=paste0("GO, hkmeans: ",i))
+  tmp.res=as.data.frame(go.tempo.n)
+  if(nrow(tmp.res)!=0){
+    tmp.res$hkmeans=selected
+    res.go=rbind(res.go,tmp.res)
+  }
+}
+dev.off()
+
+#write.table(res.great,paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/peak2gene/p2gLinks_enrichmentGREAT_k",k.select,"_",origin,".txt"),sep = "\t",quote = F)
+#write.table(res.go,paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/peak2gene/p2gLinks_enrichmentGO_k",k.select,"_",origin,".txt"),sep = "\t",quote = F)
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+
+```
+
+## somite
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+origin="somite"
+k.select=length(cls.retain[[origin]])
+
+peak.cls=read.table(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/peak2gene/p2gLink_scatacPeakCluster_k",k.select,"_",origin,".txt"),sep = "\t");table(peak.cls$hkmeans)
+peak.cls=peak.cls[order(peak.cls$hkmeans,-peak.cls$Correlation),]
+peak.cls$p2gID=rownames(peak.cls)
+
+peak.cls$hkmeans.str=""
+peak.cls[peak.cls$hkmeans==1,"hkmeans.str"]="k1"
+peak.cls[peak.cls$hkmeans==2,"hkmeans.str"]="k2"
+peak.cls[peak.cls$hkmeans==3,"hkmeans.str"]="k3"
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.width=8}
+#rGREAT: peak enrichment
+res.great=NULL
+
+pdf(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts/figS5/p2gLinks_topEnrichment_k",k.select,"_",origin,"_v2.pdf"),width = 6,height = 4)
+for(i in unique(peak.cls$hkmeans.str)){
+  selected=c(i)
+  p2g.gr=StringToGRanges(peak.cls[peak.cls$hkmeans.str %in% selected,"peak"],sep = c(":","-"))
+  res=great(p2g.gr,"GO:BP", "TxDb.Ggallus.UCSC.galGal6.refGene")
+  tb = getEnrichmentTable(res)
+  print(head(tb,n=20)) #ordered by p value, not fold enrichment
+  
+  #plot
+  tb$p.adjLog=-log10(tb$p_adjust); fill="#F47321"
+  tb$hkmeans=selected
+  c <- ggplot(tb[1:10,]) + theme_bw() +
+    aes(x = reorder(description, p.adjLog), y = p.adjLog) +
+    geom_col(position = "dodge", fill = fill) +
+    ggtitle(paste0("rGREAT, hkmeans: ",i)) +
+    xlab("Pathways") + ylab("Negative Log adjusted P-val") +
+    coord_flip() +
+    theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+          panel.background = element_blank(), axis.line = element_line(colour = "black"),
+          panel.border = element_blank(),text = element_text(size=10))
+  print(c)
+  res.great=rbind(res.great,tb)
+}
+
+# GO enrichment
+# GO enrichment
+res.go=NULL
+for(i in unique(peak.cls$hkmeans.str)){
+  selected=c(i)
+  
+  #plot
+  go.tempo.n=get_go(genes = peak.cls[peak.cls$hkmeans.str %in% selected,"gene"], from="SYMBOL", ont = "BP", top=10, fill="#F47321",main=paste0("GO, hkmeans: ",i))
+  tmp.res=as.data.frame(go.tempo.n)
+  if(nrow(tmp.res)!=0){
+    tmp.res$hkmeans=selected
+    res.go=rbind(res.go,tmp.res)
+  }
+}
+dev.off()
+
+#write.table(res.great,paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/peak2gene/p2gLinks_enrichmentGREAT_k",k.select,"_",origin,".txt"),sep = "\t",quote = F)
+#write.table(res.go,paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/peak2gene/p2gLinks_enrichmentGO_k",k.select,"_",origin,".txt"),sep = "\t",quote = F)
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+
+```
+
+## limb
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+origin="limb"
+k.select=length(cls.retain[[origin]])
+
+peak.cls=read.table(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/peak2gene/p2gLink_scatacPeakCluster_k",k.select,"_",origin,".txt"),sep = "\t");table(peak.cls$hkmeans)
+peak.cls=peak.cls[order(peak.cls$hkmeans,-peak.cls$Correlation),]
+peak.cls$p2gID=rownames(peak.cls)
+
+peak.cls$hkmeans.str=""
+peak.cls[peak.cls$hkmeans==1,"hkmeans.str"]="k1"
+peak.cls[peak.cls$hkmeans==2,"hkmeans.str"]="k4"
+peak.cls[peak.cls$hkmeans==3,"hkmeans.str"]="k3"
+peak.cls[peak.cls$hkmeans==4,"hkmeans.str"]="k2"
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.width=8}
+#rGREAT: peak enrichment
+res.great=NULL
+
+pdf(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts/figS5/p2gLinks_topEnrichment_k",k.select,"_",origin,"_v2.pdf"),width = 6,height = 4)
+for(i in unique(peak.cls$hkmeans.str)){
+  selected=c(i)
+  p2g.gr=StringToGRanges(peak.cls[peak.cls$hkmeans.str %in% selected,"peak"],sep = c(":","-"))
+  res=great(p2g.gr,"GO:BP", "TxDb.Ggallus.UCSC.galGal6.refGene")
+  tb = getEnrichmentTable(res)
+  print(head(tb,n=20)) #ordered by p value, not fold enrichment
+  
+  #plot
+  tb$p.adjLog=-log10(tb$p_adjust); fill="#F47321"
+  tb$hkmeans=selected
+  c <- ggplot(tb[1:10,]) + theme_bw() +
+    aes(x = reorder(description, p.adjLog), y = p.adjLog) +
+    geom_col(position = "dodge", fill = fill) +
+    ggtitle(paste0("rGREAT, hkmeans: ",i)) +
+    xlab("Pathways") + ylab("Negative Log adjusted P-val") +
+    coord_flip() +
+    theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+          panel.background = element_blank(), axis.line = element_line(colour = "black"),
+          panel.border = element_blank(),text = element_text(size=10))
+  print(c)
+  res.great=rbind(res.great,tb)
+}
+
+# GO enrichment
+# GO enrichment
+res.go=NULL
+for(i in unique(peak.cls$hkmeans.str)){
+  selected=c(i)
+  
+  #plot
+  go.tempo.n=get_go(genes = peak.cls[peak.cls$hkmeans.str %in% selected,"gene"], from="SYMBOL", ont = "BP", top=10, fill="#F47321",main=paste0("GO, hkmeans: ",i))
+  tmp.res=as.data.frame(go.tempo.n)
+  if(nrow(tmp.res)!=0){
+    tmp.res$hkmeans=selected
+    res.go=rbind(res.go,tmp.res)
+  }
+}
+dev.off()
+
+#write.table(res.great,paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/peak2gene/p2gLinks_enrichmentGREAT_k",k.select,"_",origin,".txt"),sep = "\t",quote = F)
+#write.table(res.go,paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/peak2gene/p2gLinks_enrichmentGO_k",k.select,"_",origin,".txt"),sep = "\t",quote = F)
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+
+```
+
+## log
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+sessionInfo()
+```

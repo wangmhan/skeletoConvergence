@@ -1,0 +1,323 @@
+---
+title: "figure3_dynamics_peakLNS"
+output: 
+  html_document:
+    df_print: paged
+  html_notebook:
+editor_options:
+  chunk_output_type: inline
+---
+
+```{r setup, message=FALSE, warning=FALSE, echo=FALSE}
+# packages
+library(Seurat);library(Signac);library(ggplot2)
+library(limma);library(slingshot)
+library(dplyr);library(RColorBrewer);library(pheatmap)
+library(viridisLite);library(gridExtra);library(reshape2)
+# derived from: ~/Rscript/manuscriptFigure/fig4_heatmap.Rmd
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+save_pheatmap_pdf <- function(x, filename, width=6, height=4) {
+   stopifnot(!missing(x))
+   stopifnot(!missing(filename))
+   pdf(filename, width=width, height=height)
+   grid::grid.newpage()
+   grid::grid.draw(x$gtable)
+   dev.off()
+}
+```
+
+## heatmap
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+bins.used.atac=list()
+bins.used.atac[["nasal"]]=1:10
+bins.used.atac[["somite"]]=1:10
+bins.used.atac[["limb"]]=1:10
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+ph.n=read.table(gzfile(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/pseudotime/temporal_scatacPtbin_peakMatrix_N10_consist_","nasal",".txt.gz")),sep = "\t")
+ph.s=read.table(gzfile(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/pseudotime/temporal_scatacPtbin_peakMatrix_N10_consist_","somite",".txt.gz")),sep = "\t")
+ph.l=read.table(gzfile(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/pseudotime/temporal_scatacPtbin_peakMatrix_N10_consist_","limb",".txt.gz")),sep = "\t")
+
+ph.n=as.matrix(ph.n[,bins.used.atac[["nasal"]]])
+ph.s=as.matrix(ph.s[,bins.used.atac[["somite"]]])
+ph.l=as.matrix(ph.l[,bins.used.atac[["limb"]]])
+
+```
+
+### top 100
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+origin="nasal"
+daps.n=read.delim(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/diffAnalysis/top500daps_sorted_",origin,"_addInfo.txt"),sep = "\t")
+
+origin="somite"
+daps.s=read.delim(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/diffAnalysis/top500daps_sorted_",origin,"_addInfo.txt"),sep = "\t")
+
+origin="limb"
+daps.l=read.delim(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/diffAnalysis/top500daps_sorted_",origin,"_addInfo.txt"),sep = "\t")
+
+top.n=100
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.width=6}
+origin="nasal"
+daps=read.delim(paste0("~/figure_drafts/top500daps_sorted_",origin,"_addInfo.txt"));dim(daps)
+pkset=daps$V1[1:top.n]
+
+dynamics.peakacc.l=ph.l[pkset,]
+dynamics.peakacc.n=ph.n[pkset,]
+dynamics.peakacc.s=ph.s[pkset,]
+log=FALSE;scale=FALSE;smooth=FALSE
+if(log){
+  dynamics.peakacc.l=log2(dynamics.peakacc.l+1)
+  dynamics.peakacc.n=log2(dynamics.peakacc.n+1)
+  dynamics.peakacc.s=log2(dynamics.peakacc.s+1)
+}
+if(smooth){
+  dynamics.peakacc <- t(apply(dynamics.peakacc,1,function(x){smooth.spline(x,df=3)$y}))
+}
+if(scale){
+  dynamics.peakacc.n=t(scale(t(dynamics.peakacc.n)))
+  dynamics.peakacc.s=t(scale(t(dynamics.peakacc.s)))
+  dynamics.peakacc.l=t(scale(t(dynamics.peakacc.l)))
+}
+
+quantile(dynamics.peakacc.l);quantile(dynamics.peakacc.n);quantile(dynamics.peakacc.s)
+break1=seq(0, 0.5, by=0.01)
+col1 = colorRampPalette((brewer.pal(n = 7, name ="YlOrBr")))(length(break1)) #rev
+gtitile=paste0(origin," top ",top.n," DAPs")
+
+rownames(dynamics.peakacc.n)=make.unique(daps$closest.symbol[1:top.n])
+rownames(dynamics.peakacc.s)=make.unique(daps$closest.symbol[1:top.n])
+rownames(dynamics.peakacc.l)=make.unique(daps$closest.symbol[1:top.n])
+
+pt1=pheatmap(
+  mat               = dynamics.peakacc.n,
+  border_color      = NA,
+  show_colnames     = TRUE, show_rownames     = T,
+  cluster_rows=FALSE, cluster_cols = FALSE, 
+  drop_levels       = TRUE,treeheight_row=0,
+  fontsize_row = 5, fontsize_col = 5, silent = TRUE,
+  #annotation_row    = anno$row, annotation_colors = anno$color,
+  main              = paste0("nasal, ",gtitile),
+  color = col1,
+  breaks = break1
+)
+plot.new(); print(pt1)
+
+pt2=pheatmap(
+  mat               = dynamics.peakacc.s,
+  border_color      = NA,
+  show_colnames     = TRUE, show_rownames     = T,
+  cluster_rows=FALSE, cluster_cols = FALSE, 
+  drop_levels       = TRUE,treeheight_row=0,
+  fontsize_row = 5, fontsize_col = 5, silent = TRUE,
+  #annotation_row    = anno$row, annotation_colors = anno$color,
+  main              = paste0("somite, ",gtitile),
+  color = col1,
+  breaks = break1
+)
+plot.new(); print(pt2)
+
+pt3=pheatmap(
+  mat               = dynamics.peakacc.l,
+  border_color      = NA,
+  show_colnames     = TRUE, show_rownames     = T,
+  cluster_rows=FALSE, cluster_cols = FALSE, 
+  drop_levels       = TRUE,treeheight_row=0,
+  fontsize_row = 5, fontsize_col = 5, silent = TRUE,
+  #annotation_row    = anno$row, annotation_colors = anno$color,
+  main              = paste0("limb, ",gtitile),
+  color = col1,
+  breaks = break1
+)
+plot.new(); print(pt3)
+
+save_pheatmap_pdf(pt1, paste0("~/figure_drafts/fig3_peakHeatmap_10bins_consistTop100_",origin,"DAPs_nasal.pdf"), width=4.5, height=8)
+save_pheatmap_pdf(pt2, paste0("~/figure_drafts/fig3_peakHeatmap_10bins_consistTop100_",origin,"DAPs_somite.pdf"), width=4.5, height=8)
+save_pheatmap_pdf(pt3, paste0("~/figure_drafts/fig3_peakHeatmap_10bins_consistTop100_",origin,"DAPs_limb.pdf"), width=4.5, height=8)
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.width=6}
+origin="somite"
+daps=read.delim(paste0("~/figure_drafts/top500daps_sorted_",origin,"_addInfo.txt"));dim(daps)
+pkset=daps$V1[1:top.n]
+
+dynamics.peakacc.l=ph.l[pkset,]
+dynamics.peakacc.n=ph.n[pkset,]
+dynamics.peakacc.s=ph.s[pkset,]
+log=FALSE;scale=FALSE;smooth=FALSE
+if(log){
+  dynamics.peakacc.l=log2(dynamics.peakacc.l+1)
+  dynamics.peakacc.n=log2(dynamics.peakacc.n+1)
+  dynamics.peakacc.s=log2(dynamics.peakacc.s+1)
+}
+if(smooth){
+  dynamics.peakacc <- t(apply(dynamics.peakacc,1,function(x){smooth.spline(x,df=3)$y}))
+}
+if(scale){
+  dynamics.peakacc.n=t(scale(t(dynamics.peakacc.n)))
+  dynamics.peakacc.s=t(scale(t(dynamics.peakacc.s)))
+  dynamics.peakacc.l=t(scale(t(dynamics.peakacc.l)))
+}
+
+quantile(dynamics.peakacc.l);quantile(dynamics.peakacc.n);quantile(dynamics.peakacc.s)
+#break1=seq(0, 0.5, by=0.01)
+break1=seq(0, 0.25, by=0.01)
+col1 = colorRampPalette((brewer.pal(n = 7, name ="YlOrBr")))(length(break1)) #rev
+
+gtitile=paste0(origin," top ",top.n," DAPs")
+
+rownames(dynamics.peakacc.n)=make.unique(daps$closest.symbol[1:top.n])
+rownames(dynamics.peakacc.s)=make.unique(daps$closest.symbol[1:top.n])
+rownames(dynamics.peakacc.l)=make.unique(daps$closest.symbol[1:top.n])
+
+pt1=pheatmap(
+  mat               = dynamics.peakacc.n,
+  border_color      = NA,
+  show_colnames     = TRUE, show_rownames     = T,
+  cluster_rows=FALSE, cluster_cols = FALSE, 
+  drop_levels       = TRUE,treeheight_row=0,
+  fontsize_row = 5, fontsize_col = 5, silent = TRUE,
+  #annotation_row    = anno$row, annotation_colors = anno$color,
+  main              = paste0("nasal, ",gtitile),
+  color = col1,
+  breaks = break1
+)
+plot.new(); print(pt1)
+
+pt2=pheatmap(
+  mat               = dynamics.peakacc.s,
+  border_color      = NA,
+  show_colnames     = TRUE, show_rownames     = T,
+  cluster_rows=FALSE, cluster_cols = FALSE, 
+  drop_levels       = TRUE,treeheight_row=0,
+  fontsize_row = 5, fontsize_col = 5, silent = TRUE,
+  #annotation_row    = anno$row, annotation_colors = anno$color,
+  main              = paste0("somite, ",gtitile),
+  color = col1,
+  breaks = break1
+)
+plot.new(); print(pt2)
+
+pt3=pheatmap(
+  mat               = dynamics.peakacc.l,
+  border_color      = NA,
+  show_colnames     = TRUE, show_rownames     = T,
+  cluster_rows=FALSE, cluster_cols = FALSE, 
+  drop_levels       = TRUE,treeheight_row=0,
+  fontsize_row = 5, fontsize_col = 5, silent = TRUE,
+  #annotation_row    = anno$row, annotation_colors = anno$color,
+  main              = paste0("limb, ",gtitile),
+  color = col1,
+  breaks = break1
+)
+plot.new(); print(pt3)
+
+save_pheatmap_pdf(pt1, paste0("~/figure_drafts/fig3_peakHeatmap_10bins_consistTop100_",origin,"DAPs_nasal_v2.pdf"), width=4.5, height=8)
+save_pheatmap_pdf(pt2, paste0("~/figure_drafts/fig3_peakHeatmap_10bins_consistTop100_",origin,"DAPs_somite_v2.pdf"), width=4.5, height=8)
+save_pheatmap_pdf(pt3, paste0("~/figure_drafts/fig3_peakHeatmap_10bins_consistTop100_",origin,"DAPs_limb_v2.pdf"), width=4.5, height=8)
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.width=6}
+origin="limb"
+daps=read.delim(paste0("~/figure_drafts/top500daps_sorted_",origin,"_addInfo.txt"));dim(daps)
+pkset=daps$V1[1:top.n]
+
+dynamics.peakacc.l=ph.l[pkset,]
+dynamics.peakacc.n=ph.n[pkset,]
+dynamics.peakacc.s=ph.s[pkset,]
+log=FALSE;scale=FALSE;smooth=FALSE
+if(log){
+  dynamics.peakacc.l=log2(dynamics.peakacc.l+1)
+  dynamics.peakacc.n=log2(dynamics.peakacc.n+1)
+  dynamics.peakacc.s=log2(dynamics.peakacc.s+1)
+}
+if(smooth){
+  dynamics.peakacc <- t(apply(dynamics.peakacc,1,function(x){smooth.spline(x,df=3)$y}))
+}
+if(scale){
+  dynamics.peakacc.n=t(scale(t(dynamics.peakacc.n)))
+  dynamics.peakacc.s=t(scale(t(dynamics.peakacc.s)))
+  dynamics.peakacc.l=t(scale(t(dynamics.peakacc.l)))
+}
+
+quantile(dynamics.peakacc.l);quantile(dynamics.peakacc.n);quantile(dynamics.peakacc.s)
+#break1=seq(0, 0.5, by=0.01)
+break1=seq(0, 0.25, by=0.01)
+col1 = colorRampPalette((brewer.pal(n = 7, name ="YlOrBr")))(length(break1)) #rev
+gtitile=paste0(origin," top ",top.n," DAPs")
+
+rownames(dynamics.peakacc.n)=make.unique(daps$closest.symbol[1:top.n])
+rownames(dynamics.peakacc.s)=make.unique(daps$closest.symbol[1:top.n])
+rownames(dynamics.peakacc.l)=make.unique(daps$closest.symbol[1:top.n])
+
+pt1=pheatmap(
+  mat               = dynamics.peakacc.n,
+  border_color      = NA,
+  show_colnames     = TRUE, show_rownames     = T,
+  cluster_rows=FALSE, cluster_cols = FALSE, 
+  drop_levels       = TRUE,treeheight_row=0,
+  fontsize_row = 5, fontsize_col = 5, silent = TRUE,
+  #annotation_row    = anno$row, annotation_colors = anno$color,
+  main              = paste0("nasal, ",gtitile),
+  color = col1,
+  breaks = break1
+)
+plot.new(); print(pt1)
+
+pt2=pheatmap(
+  mat               = dynamics.peakacc.s,
+  border_color      = NA,
+  show_colnames     = TRUE, show_rownames     = T,
+  cluster_rows=FALSE, cluster_cols = FALSE, 
+  drop_levels       = TRUE,treeheight_row=0,
+  fontsize_row = 5, fontsize_col = 5, silent = TRUE,
+  #annotation_row    = anno$row, annotation_colors = anno$color,
+  main              = paste0("somite, ",gtitile),
+  color = col1,
+  breaks = break1
+)
+plot.new(); print(pt2)
+
+pt3=pheatmap(
+  mat               = dynamics.peakacc.l,
+  border_color      = NA,
+  show_colnames     = TRUE, show_rownames     = T,
+  cluster_rows=FALSE, cluster_cols = FALSE, 
+  drop_levels       = TRUE,treeheight_row=0,
+  fontsize_row = 5, fontsize_col = 5, silent = TRUE,
+  #annotation_row    = anno$row, annotation_colors = anno$color,
+  main              = paste0("limb, ",gtitile),
+  color = col1,
+  breaks = break1
+)
+plot.new(); print(pt3)
+
+save_pheatmap_pdf(pt1, paste0("~/figure_drafts/fig3_peakHeatmap_10bins_consistTop100_",origin,"DAPs_nasal_v2.pdf"), width=4.5, height=8)
+save_pheatmap_pdf(pt2, paste0("~/figure_drafts/fig3_peakHeatmap_10bins_consistTop100_",origin,"DAPs_somite_v2.pdf"), width=4.5, height=8)
+save_pheatmap_pdf(pt3, paste0("~/figure_drafts/fig3_peakHeatmap_10bins_consistTop100_",origin,"DAPs_limb_v2.pdf"), width=4.5, height=8)
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+
+```
+
+## log
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+sessionInfo()
+```
+

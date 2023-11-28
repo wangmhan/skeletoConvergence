@@ -1,0 +1,182 @@
+---
+title: "figureS2_plot"
+output: 
+  html_document:
+    df_print: paged
+  html_notebook:
+editor_options:
+  chunk_output_type: inline
+---
+
+for panel A-C
+
+```{r setup, message=FALSE, warning=FALSE, echo=FALSE}
+# packages
+library(Signac); library(Seurat); 
+library(dplyr); library(scales)
+library(GenomeInfoDb); library(ensembldb)
+library(ggplot2); library(patchwork);library(viridisLite)
+library(GenomicRanges); library(future)
+library(pheatmap); library(RColorBrewer);library(gridExtra)
+
+source("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/figure_script/integration_function.R")
+# derived from ~/Rscript/manuscriptFigure/fig1_scatac.Rmd
+```
+
+###############
+## data
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+#gene name info
+gene.info=read.table("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/ensembl97_geneinfo.txt", sep="\t",header = TRUE,row.names = 1,stringsAsFactors = FALSE)
+gene.info[gene.info$genename=="","genename"]=rownames(gene.info[gene.info$genename=="",])
+gene.info$genename=toupper(gene.info$genename)
+
+# scRNA data path
+rna_path <- "/scicore/home/tschoppp/GROUP/lab/Chris.shared/for.Menghan/"
+my.rfiles=paste0(rna_path,c("forelimb_seurat_290420.rds","frontonasal_seurat_290420.rds","somites_seurat_290420.rds"))
+rsubset_path <- "/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/clustering/"
+my.subrfiles=paste0(rsubset_path,c("subset_limb.rds","subset_nasal.rds","subset_somite.rds"))
+meta=readRDS("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/clustering/meta_all.rds")
+
+# scATAC data path
+atac_path <- "/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/integration/"
+my.afiles=paste0(atac_path,c("limb_atac_integrated010721_activity.rds","nasal_atac_integrated010721_activity.rds","somite_atac_integrated010721_activity.rds"))
+my.subafiles=paste0(atac_path,c("limb_atac_intgtFine010721_activity.rds","nasal_atac_intgtFine010721_activity.rds","somite_atac_intgtFine010721_activity.rds"))
+
+
+my.data=list(); ctypes=list(); mcolors=list()
+my.subdata=list(); subctypes=list(); msubcolors=list()
+markers=list()
+
+grey=brewer.pal(n = 9, name = "Greys")
+colfunc <- colorRampPalette(c(grey[3],grey[7])) #plot(rep(1,10),col=colfunc(10),pch=19,cex=3)
+
+```
+
+## Embeddings (broad)
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+col.info=read.csv("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/colors/embed_colorCode.txt",header = F)
+head(col.info)
+col.info=col.info[!duplicated(col.info$V1),]
+
+mcolors=col.info$V2
+names(mcolors)=col.info$V1
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+#reorder celltype
+alevels=list()
+
+#place to optimize: order of celltype
+origin="nasal"
+alevels[[origin]]=c("cranialMesenchyme","amb_cranialMesenchyme","Neurons","NeuronalCells","Skin","Vessels","Blood")
+#rlevels[[origin]]=c("cranialMesenchyme","CyclingCells","proliferatingNeurons","Neurons","NeuronalCells","Skin","Vessels","Blood")
+
+origin="somite"
+alevels[[origin]]=c("Sclerotome","Dermomyotome","amb_Dermomyotome","lateralPlateMesoderm","neuralTubeProgenitors","neuralTubeProgenitorsOrNeurons","Neurons","neuralCrest","intermediateMesoderm","Skin","Vessels","Blood")
+#rlevels[[origin]]=c("Sclerotome","Dermomyotome","lateralPlateMesoderm","neuralTubeProgenitors","Neurons","neuralCrest","intermediateMesoderm","mitochondrialRich","Skin","Vessels","Blood")
+
+origin="limb"
+alevels[[origin]]=c("Mesenchyme","MesenchymeORskeletogenicCells","skeletogenicCells","amb_Mesenchyme","Muscle","Skin","Leukocytes")
+#rlevels[[origin]]=c("Mesenchyme","skeletogenicCells","posteriorMesenchyme","CyclingCells","Muscle","Skin","Leukocytes","Blood")
+
+#place to optimize:tsne or xtsne
+my.reduction="tsne"
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.width=10,fig.height=6}
+origin="nasal"
+my.data[[origin]] = readRDS(my.afiles[2]) #load in
+my.meta=readRDS(gsub("activity","meta",my.afiles[2]))
+my.data[[origin]]=AddMetaData(my.data[[origin]],metadata = my.meta[rownames(my.data[[origin]]@meta.data),c("broad","annotation_broad","fine","annotation_fine")],col.name = c("broad","annotation_broad","fine","annotation_fine"))
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.width=8,fig.height=5}
+DefaultAssay(my.data[[origin]])="activity"
+Idents(my.data[[origin]])=factor(my.data[[origin]]$annotation_broad,
+                                 levels=alevels[[origin]])
+
+#place to optimize: color by ASCII code
+#grey used gradient
+msubcolors[[origin]]=c("#DC0078",
+                       colfunc(7)[c(1,3:7)]) #,"#FCAACF"
+names(msubcolors[[origin]])=alevels[[origin]]
+
+p1=DimPlot(my.data[[origin]],label = T,reduction = my.reduction,cols = msubcolors[[origin]]) +ggtitle(paste0(origin,": fine"))+theme(aspect.ratio=1) #mcolors
+p1
+
+pdf("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts/figS2/figureS2_A_broad.pdf",height = 6,width = 6)
+p1+NoLegend()
+dev.off()
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.width=10,fig.height=6}
+origin="somite"
+my.data[[origin]] = readRDS(my.afiles[3]) #load in
+my.meta=readRDS(gsub("activity","meta",my.afiles[3]))
+my.data[[origin]]=AddMetaData(my.data[[origin]],metadata = my.meta[rownames(my.data[[origin]]@meta.data),c("broad","annotation_broad","fine","annotation_fine")],col.name = c("broad","annotation_broad","fine","annotation_fine"))
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.width=8,fig.height=5}
+origin="somite"
+DefaultAssay(my.data[[origin]])="activity"
+Idents(my.data[[origin]])=factor(my.data[[origin]]$annotation_broad,
+                                 levels=alevels[[origin]])
+
+#place to optimize: color by ASCII code
+#grey used gradient
+msubcolors[[origin]]=c("#008FD4",
+                       colfunc(10)[c(1,7,2:3)],colfunc(11)[11],colfunc(10)[c(4:6,8:10)])
+names(msubcolors[[origin]])=alevels[[origin]]
+
+p1=DimPlot(my.data[[origin]],label = T,reduction = my.reduction,cols = msubcolors[[origin]]) +ggtitle(paste0(origin,": fine"))+theme(aspect.ratio=1)
+p1
+
+pdf("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts/figS2/figureS2_B_broad.pdf",height = 6,width = 6)
+p1+NoLegend()
+dev.off()
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.width=10,fig.height=6}
+origin="limb"
+my.data[[origin]] = readRDS(my.afiles[1]) #load in
+my.meta=readRDS(gsub("activity","meta",my.afiles[1]))
+my.data[[origin]]=AddMetaData(my.data[[origin]],metadata = my.meta[rownames(my.data[[origin]]@meta.data),c("broad","annotation_broad","fine","annotation_fine")],col.name = c("broad","annotation_broad","fine","annotation_fine"))
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.width=8,fig.height=5}
+origin="limb"
+DefaultAssay(my.data[[origin]])="activity"
+Idents(my.data[[origin]])=factor(my.data[[origin]]$annotation_broad,
+                                 levels=alevels[[origin]])
+
+#place to optimize: color by ASCII code
+#grey used gradient
+msubcolors[[origin]]=c("#FFD01F","#FFB817","#FFA309",
+                       colfunc(6)[2:5])
+names(msubcolors[[origin]])=alevels[[origin]]
+
+p1=DimPlot(my.data[[origin]],label = T,reduction = my.reduction,cols = msubcolors[[origin]]) +ggtitle(paste0(origin,": fine"))+theme(aspect.ratio=1)
+p1
+
+pdf("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts/figS2/figureS2_C_broad.pdf",height = 6,width = 6)
+p1+NoLegend()
+dev.off()
+
+```
+
+## sessioninfo
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+sessionInfo()
+```
+
+

@@ -1,0 +1,120 @@
+---
+title: "figure2_dotplot"
+output: 
+  html_document:
+    df_print: paged
+  html_notebook:
+editor_options:
+  chunk_output_type: inline
+---
+
+for panel C
+
+```{r setup, message=FALSE, warning=FALSE, echo=FALSE}
+# packages
+library(Seurat);library(ggplot2)
+library(dplyr);library(RColorBrewer)
+library(viridis);library(gridExtra)
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+# derived from code: Rscript/manuscriptFigure/fig2_scrna_degs_chondrocytes.Rmd
+
+gene.info=read.table("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/ensembl97_geneinfo.txt", sep="\t",header = TRUE,row.names = 1,stringsAsFactors = FALSE)
+gene.info[gene.info$genename=="","genename"]=rownames(gene.info[gene.info$genename=="",])
+gene.info$genename=toupper(gene.info$genename)
+
+tf=read.table("/scicore/home/tschoppp/GROUP/references/genomes/TFs/Gallus_gallus_TF_AnimalTFDB3_edited.txt", sep = "\t", header = T)
+
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+# read in data
+my.files="integrate_seuratHVGscran_wholeGenesets.rds"
+my.path="/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/integration/"
+my.integrated=readRDS(paste0(my.path,my.files))
+
+#metadata
+meta = paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/clustering/meta_",c("limb","nasal","somite"),".rds")
+my.meta=NULL
+for(i in 1:length(meta)){
+  meta.tmp=readRDS(meta[i])
+  my.meta=rbind(my.meta,meta.tmp)
+}
+
+rlevels=c("nasal","somite","limb")
+```
+
+## dotplot
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+# subset chondrocytes
+my.integrated=AddMetaData(my.integrated,metadata = my.meta[rownames(my.integrated@meta.data),c("broad","annotation_broad","fine","annotation_fine")])
+Idents(my.integrated)=my.integrated$annotation_fine
+
+my.subset=subset(my.integrated,cells =rownames(my.integrated@meta.data[my.integrated@meta.data$annotation_fine %in% c("chondrocytes"),]))
+
+# switch to gene name
+tmp=GetAssayData(my.subset,assay = "RNA",slot = "data")
+rownames(tmp)=gene.info[rownames(tmp),"genename"]
+my.subset[['rename']]=CreateAssayObject(data=as.matrix(tmp))
+DefaultAssay(my.subset)="rename"
+
+# read in markers
+my.markers=read.table(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts/fig2/TF_markers_Fig2.txt"),header = T)
+my.markers=my.markers[my.markers$name!="",]
+my.markers$name=toupper(my.markers$name)
+my.markers$name[!(my.markers$name %in% gene.info$genename)]
+my.markers$origin=factor(my.markers$origin,levels = rlevels)
+my.markers=my.markers[order(my.markers$origin),]
+my.markers=my.markers[!duplicated(my.markers$name),];dim(my.markers)
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+#the final genelist used for figures
+fgenes=c("TBX2","ALX4","SIX2","ALX1","ID2","PRRX2","ID1","DLX1",
+         "TWIST1","TCF15","MEOX1","NKX3-2","PAX1","TBX22","HOXB5","SALL4",
+         "BCL11A","TCF7L2","HOXA9","MECOM","HAND2","SHOX2","TBX5","PRRX1")
+my.markers=my.markers[my.markers$name %in% fgenes,];dim(my.markers)
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.width=15,fig.height=5}
+# plot
+my.subset$origin=factor(my.subset$origin,levels = rev(rlevels))
+Idents(my.subset)=my.subset$origin
+my.subset=ScaleData(my.subset,assay = "rename", features = my.markers$name)
+p1= DotPlot(my.subset,assay = "rename",features = (my.markers$name),
+            scale.min = 0, scale.max = 50,dot.scale=10) + 
+  scale_color_gradient(low = "lightgrey",high = "black") +
+  #scale_colour_viridis(option="D") +
+  theme(axis.text.x = element_text(angle = 90, size=10)) +
+  ggtitle(paste0("RNA assay (non-corrected)"))
+print(p1)
+
+p2=DotPlot(my.subset,assay = "rename",features = (my.markers$name),
+        scale.min = 0, scale.max = 50,dot.scale=10) + 
+  #scale_color_gradient(low = "lightgrey",high = "black") +
+  scale_colour_viridis(option="D") +
+  theme(axis.text.x = element_text(angle = 90, size=10)) +
+  ggtitle(paste0("RNA assay (non-corrected)"))
+print(p2)
+
+pdf(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts/fig2/figure2_dotplot.pdf"),
+    height = 5,width = 18)
+p1;p2
+dev.off()
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+
+```
+
+## log
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+sessionInfo()
+```

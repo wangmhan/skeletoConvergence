@@ -1,0 +1,123 @@
+---
+title: "figureS1_plot"
+output: 
+  html_document:
+    df_print: paged
+  html_notebook:
+editor_options:
+  chunk_output_type: inline
+---
+
+panel S1. F-G
+
+## Figure S1
+
+```{r setup, message=FALSE, warning=FALSE, echo=FALSE}
+# packages
+library(ggplot2)
+library(dplyr)
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+# scRNA data path
+rna_path <- "/scicore/home/tschoppp/GROUP/lab/Chris.shared/for.Menghan/"
+my.files=paste0(rna_path,c("forelimb_seurat_290420.rds","frontonasal_seurat_290420.rds","somites_seurat_290420.rds"))
+
+#add metadata
+meta=readRDS("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/clustering/meta_all.rds")
+
+```
+
+## violin plot
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+qc.stat=read.table("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/clustering/fig1_qcstat.txt",
+                   sep = "\t",stringsAsFactors = F)
+qc.stat=as.data.frame(qc.stat)
+
+qc.stat$origin=substr(qc.stat$sample,1,1)
+qc.stat$origin=factor(qc.stat$origin,levels = c("N","S","L"))
+qc.stat$sample=factor(qc.stat$sample,levels = c("N15","N18","N22",
+                      "S12","S15","S20","L21","L24","L27"))
+qc.stat=qc.stat[order(qc.stat$sample),]
+
+p1a.1 <- ggplot(qc.stat, aes(sample, nUMI)) + 
+  geom_violin(trim = T,aes(fill=origin)) +
+  geom_boxplot(width=0.1, outlier.shape = NA) + 
+  scale_y_continuous(limits=c(0, 8000)) +
+  theme_classic() + scale_fill_manual(values=c("#DC0078","#008FD4","#FFD01F"))
+p1a.2 <- ggplot(qc.stat, aes(sample, ngenes)) + 
+  geom_violin(trim = T,aes(fill=origin)) +
+  geom_boxplot(width=0.1, outlier.shape = NA) + 
+  scale_y_continuous(limits=c(0, 4000)) +
+  theme_classic() + scale_fill_manual(values=c("#DC0078","#008FD4","#FFD01F"))
+p1a.3 <- ggplot(qc.stat, aes(sample, `MT.read.percentage`)) + 
+  geom_violin(trim = T,aes(fill=origin)) +
+  geom_boxplot(width=0.1, outlier.shape = NA) + 
+  scale_y_continuous(limits=c(0, 15)) +
+  theme_classic() + scale_fill_manual(values=c("#DC0078","#008FD4","#FFD01F"))
+
+p1a.1;p1a.2;p1a.3
+
+pdf("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts/figS1/figureS1_qc.pdf",height = 5,width = 15)
+p1a.1;p1a.2;p1a.3
+dev.off()
+```
+
+## stacked bar
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+library(reshape2);library(patchwork)
+stackedbar.new = function(input=hm.integrated@meta.data,cname=c("dataset","annonew"),cols=my.cols){
+  predict = as.data.frame(input[,cname])
+  colnames(predict) = c("stage","annotation")
+  
+  predict$stage=factor(predict$stage)
+  g = ggplot(predict,aes(annotation)) + theme_classic() + theme(axis.text.x = element_text(angle = 45,hjust=1))
+  g1=g + geom_bar(aes(fill = stage)) +
+    scale_fill_manual("legend", values = cols)
+  g2=g + geom_bar(aes(fill = stage),position="fill") +
+    scale_fill_manual("legend", values = cols)
+  
+  #normalized for each stage, as the cell number is unevenly distributed
+  perc=table(predict$stage,predict$annotation)
+  perc=perc/rowSums(perc)*100; mperc=melt(perc)
+  tperc=t(perc);tperc=tperc/rowSums(tperc)*100; mperc=melt(t(tperc))
+  g3=ggplot(mperc, aes(x = Var2, y = value)) + theme_classic() + theme(axis.text.x = element_text(angle = 45,hjust=1))+
+    geom_col(aes(fill = Var1), width = 0.7)+
+    scale_fill_manual("legend", values = cols)
+  
+  print(g1+ggtitle("cell numbers")+guides(fill = FALSE)+ #g2+ggtitle("percentage")+
+          g3+ggtitle("percentage (normalized)"))
+}
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+my.cols=c("#FC89AC","#B0445C","#65000B")
+stackedbar.new(input=meta$nasal,cname=c("stage","annotation_broad"),cols=my.cols)
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+my.cols=c("#00CCFF","#008FD4","#00416A")
+stackedbar.new(input=meta$somite,cname=c("stage","annotation_broad"),cols=my.cols)
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+my.cols=c("#FFD01F","#C49606","#88540B")
+stackedbar.new(input=meta$limb,cname=c("stage","annotation_broad"),cols=my.cols)
+
+```
+
+## log
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+sessionInfo()
+```

@@ -1,0 +1,372 @@
+---
+title: "Co-embedding scRNA-seq and scATAC-seq"
+output: 
+  html_document:
+    df_print: paged
+  html_notebook:
+editor_options:
+  chunk_output_type: inline
+---
+
+for panel A-C
+
+```{r setup, message=FALSE, warning=FALSE, echo=FALSE}
+library(Signac); library(Seurat)
+library(ggplot2); library(RColorBrewer)
+library(slingshot); library(viridis)
+# derived from: ~/Rscript/testGit/scATAC/integrateRnaAtac.Rmd
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+my.W = read.table("~/scRNA/ensembl97_wgenes.txt",sep="\t",header = TRUE,row.names = 1,stringsAsFactors = FALSE)
+
+samples=list()
+samples[["limb"]]=c("L21","L24");samples[["nasal"]]=c("N15","N18");samples[["somite"]]=c("S12","S15")
+select.cls=list()
+select.cls[["limb"]]=c("1","2","3","4","5","6","8","9","12");select.cls[["nasal"]]=c("2","3","4");select.cls[["somite"]]=c("1")
+meta_path <- paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/integration/",paste0(names(samples),"_atac_integrated010721_meta.rds"))
+rds_path <- paste0("~/scATAC/integration/",paste0(names(samples),"_atac_integrated010721.rds"))
+
+rna_path <- "/scicore/home/tschoppp/GROUP/lab/Chris.shared/for.Menghan"
+scrna.name = c("forelimb","frontonasal","somites")
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+# scRNA
+meta=readRDS("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/clustering/meta_all.rds")
+
+# scRNA data path
+subset_path <- "/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/clustering/"
+my.subfiles=paste0(subset_path,c("subset_limb.rds","subset_nasal.rds","subset_somite.rds"))
+
+my.subdata=list(); subctypes=list(); msubcolors=list()
+
+# pseudotime
+ptime_path <- "/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/pseudotime/"
+ptfiles=paste0(ptime_path,c("ptime_limb_slingshot.rds","ptime_nasal_slingshot.rds","ptime_somite_slingshot.rds"))
+get_slshot=list()
+
+```
+
+## get the coembed
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE,fig.width=8,fig.height=5}
+for(i in 1:length(samples)){
+  tmp.samples=names(samples)[i]
+  if(tmp.samples!="somite"){
+    reduction.used='harmony'
+  }else{
+    reduction.used='lsi_bin'
+  }
+  
+  # read in data
+  my.atac=readRDS(rds_path[i])
+  atac.meta=readRDS(meta_path[i])
+  my.atac=AddMetaData(my.atac,metadata = atac.meta[rownames(my.atac@meta.data),])
+  #my.rna = readRDS(paste0(rna_path,"/",scrna.name[i],"_seurat_290420.rds"))
+  rna.meta=readRDS(paste0("~/scRNA/clustering/meta_",tmp.samples,".rds"))
+  #my.rna=AddMetaData(my.rna,metadata = rna.meta[rownames(my.rna@meta.data),])
+  
+  # (optional) subset to mesenchyme
+  my.atac=subset(my.atac,idents=select.cls[[tmp.samples]])
+  Idents(my.atac)=droplevels(Idents(my.atac))
+  my.rna = readRDS(paste0("~/scRNA/clustering","/subset_",tmp.samples,".rds"))
+  Idents(my.rna)=my.rna$orig.ident
+  
+  # (optional) subset to stage1&2
+  my.rna=subset(my.rna,idents=samples[[tmp.samples]])
+  my.rna=AddMetaData(my.rna,metadata = rna.meta[rownames(my.rna@meta.data),])
+  
+  usedatac = 'activity_combat';usedrna = 'integrated'
+  embed.transfer=reduction.used
+  DefaultAssay(my.atac) <- usedatac; DefaultAssay(my.rna) <- usedrna 
+  my.atac[["macs2peaks"]]=NULL;my.atac[["peaks"]]=NULL;my.atac[["activity.name"]]=NULL;my.atac[["chromvar"]]=NULL;my.rna[["SCT"]]=NULL;gc()
+  hvgs=VariableFeatures(my.rna)[!(VariableFeatures(my.rna) %in% my.W$ensembl_gene_id)]
+  hvgs = hvgs[hvgs %in% rownames(my.atac[[usedatac]])]
+  transfer.anchors <- FindTransferAnchors(
+    reference = my.rna,query = my.atac,dims = 1:30,
+    reference.assay = usedrna, query.assay = usedatac,
+    max.features = 200, k.filter = 200,
+    reduction = 'cca',features = hvgs
+  )
+  # get imputed expression for scATAC
+  refdata <- GetAssayData(my.rna, assay = "integrated", slot = "data")[hvgs,]
+  predicted.expression1 <- TransferData(
+    anchorset = transfer.anchors,
+    refdata = refdata,
+    weight.reduction = my.atac[[embed.transfer]],
+    dims = 2:30
+  )
+  my.atac[["imputed.integrated"]]=CreateAssayObject(data=predicted.expression1@data[,rownames(my.atac@meta.data)])
+  
+  refdata2 <- GetAssayData(my.rna, assay = "RNA", slot = "data")[hvgs,]
+  predicted.expression2 <- TransferData(
+    anchorset = transfer.anchors,
+    refdata = refdata2,
+    weight.reduction = my.atac[[embed.transfer]],
+    dims = 2:30
+  )
+  my.atac[["imputed.rna"]]=CreateAssayObject(data=predicted.expression2@data[,rownames(my.atac@meta.data)]);gc()
+  
+  
+  #################
+  ## option1: MapQuery, project on scRNA (only UMAP)
+  # https://satijalab.org/seurat/articles/integration_mapping.html
+  # https://github.com/satijalab/seurat/blob/master/R/dimensional_reduction.R
+  DefaultAssay(my.atac) <- "imputed.integrated"
+  DefaultAssay(my.rna) <- "integrated"
+  my.anchors <- FindTransferAnchors(reference = my.rna, query = my.atac,
+                                    dims = 1:30, reference.reduction = "pca",features = hvgs)
+  my.rna <- RunUMAP(my.rna, dims = 1:30, reduction = "pca", return.model = TRUE)
+  my.atac <- MapQuery(anchorset = my.anchors, reference = my.rna, query = my.atac,
+                      refdata = list(celltype = "annotation_fine"), 
+                      reference.reduction = "pca", reduction.model = "umap")
+  p1a <- DimPlot(my.rna, reduction = "umap", group.by = "annotation_fine", label = TRUE, label.size = 3,
+                repel = TRUE) + NoLegend() + ggtitle("option1: scRNA (integrated)")
+  p2a <- DimPlot(my.atac, reduction = "ref.umap", group.by = "annotation_fine", label = TRUE,
+                label.size = 3, repel = TRUE) + NoLegend() + ggtitle("scATAC-seq imputed")
+  print(p1a + p2a);gc()
+  
+  #################
+  ## option2: transferdata: xtSNE
+  my.dims=Embeddings(my.rna,reduction = "xtsne")
+  predicted.space <- TransferData(
+    anchorset = transfer.anchors,
+    refdata = t(my.dims),
+    weight.reduction = my.atac[[embed.transfer]],
+    dims = 2:30
+  )
+  my.atac[['imputed.xtsne']] <- CreateDimReducObject(embeddings = t(as.matrix(predicted.space@data))[rownames(my.atac@reductions$xtsne),], 
+                                                     key = 'imputed-xtSNE_', assay = usedatac)
+  
+  p3a <- DimPlot(my.rna, reduction = "xtsne", group.by = "annotation_fine", label = TRUE, label.size = 3,
+                repel = TRUE) + NoLegend() + ggtitle("option2: scRNA (xtSNE)")
+  p4a <- DimPlot(my.atac, reduction = "imputed.xtsne", group.by = "annotation_fine", label = TRUE,
+                label.size = 3, repel = TRUE) + NoLegend() + ggtitle("scATAC-seq imputed")
+  print(p3a + p4a)
+  
+  my.dims=Embeddings(my.rna,reduction = "umap")
+  predicted.space <- TransferData(
+    anchorset = transfer.anchors,
+    refdata = t(my.dims),
+    weight.reduction = my.atac[[embed.transfer]],
+    dims = 2:30
+  )
+  my.atac[['imputed.umap']] <- CreateDimReducObject(embeddings = t(as.matrix(predicted.space@data))[rownames(my.atac@reductions$xtsne),], 
+                                                     key = 'imputed-UMAP_', assay = usedatac)
+  
+  p3b <- DimPlot(my.rna, reduction = "umap", group.by = "annotation_fine", label = TRUE, label.size = 3,
+                repel = TRUE) + NoLegend() + ggtitle("option2: scRNA (UMAP)")
+  p4b <- DimPlot(my.atac, reduction = "imputed.umap", group.by = "annotation_fine", label = TRUE,
+                label.size = 3, repel = TRUE) + NoLegend() + ggtitle("scATAC-seq imputed")
+  print(p3b + p4b)
+  
+  my.embeds=list()
+  my.embeds[["option1.mapquery"]]=my.atac@reductions$ref.umap@cell.embeddings
+  my.embeds[["option2.xtsne"]]=my.atac@reductions$imputed.xtsne@cell.embeddings
+  my.embeds[["option2.umap"]]=my.atac@reductions$imputed.umap@cell.embeddings
+
+  #saveRDS(my.embeds,paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/coembed/coembed_embeddings_",tmp.samples,".rds"))
+
+}
+```
+
+## project pseudotime
+
+### nasal
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+origin="nasal"
+my.subdata[[origin]] = readRDS(my.subfiles[2]) #load in
+my.subdata[[origin]]=AddMetaData(my.subdata[[origin]],metadata = meta[[origin]][rownames(my.subdata[[origin]]@meta.data),c("broad","annotation_broad","fine","annotation_fine")],col.name = c("broad","annotation_broad","fine","annotation_fine"))
+Idents(my.subdata[[origin]])=my.subdata[[origin]]$annotation_fine
+
+p4a.s=DimPlot(my.subdata[[origin]],label = T,reduction = "xtsne", label.size = 2.5) +ggtitle(paste0(origin))+theme(aspect.ratio=1)
+p4a.0=p4a.s+NoLegend()+ NoAxes()
+
+get_slshot[[origin]]=readRDS(ptfiles[2])[["xtsne"]]
+for (i in seq_along(slingCurves(get_slshot[[origin]]))) {
+  curve_i <- slingCurves(get_slshot[[origin]])[[i]]
+  curve_i <- curve_i$s[curve_i$ord, ]
+  colnames(curve_i) <- c("xtsne_1", "xtsne_2")
+  p4a.0 <- p4a.0 + geom_path(data = as.data.frame(curve_i), aes(x = xtsne_1, y = xtsne_2), col = "black", size = 0.5) 
+}
+p4a.0
+
+my.subdata[[origin]]=AddMetaData(my.subdata[[origin]],slingPseudotime(get_slshot[[origin]])[,"curve4"][rownames(my.subdata[[origin]]@meta.data)],col.name = "pseudotime")
+p4a=FeaturePlot(my.subdata[[origin]],reduction = "xtsne",features=c("pseudotime"),order = TRUE) + theme(aspect.ratio=1) +
+  scale_colour_gradientn(colours = brewer.pal(n = 9, name = 'YlGnBu')) #rev(viridis(10,option="A")
+p4a
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.width=5}
+samples="nasal"
+subset.atac=readRDS(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/integration/",samples,"_atac_intgtFine010721_activity.rds"))
+my.meta=readRDS(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/integration/",samples,"_atac_integrated010721_meta.rds"))
+subset.atac=AddMetaData(subset.atac,metadata = my.meta[rownames(subset.atac@meta.data),c("broad","annotation_broad","fine","annotation_fine")],col.name = c("broad","annotation_broad","fine","annotation_fine"))
+pt.meta=readRDS(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/pseudotime/ptime_scatac_",samples,"_summary.rds"))
+my.embeds=readRDS(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/coembed/coembed_embeddings_",samples,".rds"))
+
+DefaultAssay(subset.atac)="activity"
+subset.atac[['mapquery.umap']] <- CreateDimReducObject(embeddings = my.embeds$option1.mapquery[rownames(subset.atac@reductions$lsi),], 
+                                                  key = 'mapquery-UMAP_', assay = subset.atac@active.assay)
+subset.atac[['imputed.xtsne']] <- CreateDimReducObject(embeddings = my.embeds$option2.xtsne[rownames(subset.atac@reductions$lsi),], 
+                                                      key = 'imputed-xtSNE_', assay = subset.atac@active.assay)
+subset.atac[['imputed.umap']] <- CreateDimReducObject(embeddings = my.embeds$option2.umap[rownames(subset.atac@reductions$lsi),], 
+                                                      key = 'imputed-UMAP_', assay = subset.atac@active.assay)
+
+subset.atac <- AddMetaData(
+  object = subset.atac,
+  metadata = pt.meta[rownames(subset.atac@meta.data),c("pseudotime.transferData.relaxed")], col.name = c("pseudotime"))
+
+p1a=FeaturePlot(subset.atac,reduction = "mapquery.umap",features = c("pseudotime"),order = TRUE) + theme(aspect.ratio=1) +
+  scale_colour_gradientn(colours = (brewer.pal(n = 9, name = 'YlGnBu'))) + ggtitle(paste0(samples,", scATAC mapQuery"))
+# use same scale as scRNA data
+p1b=FeaturePlot(subset.atac,reduction = "imputed.xtsne",features = c("pseudotime"),order = TRUE) + theme(aspect.ratio=1) +
+  scale_colour_gradientn(colours = (brewer.pal(n = 9, name = 'YlGnBu'))) + ggtitle(paste0(samples,", scATAC imputed")) +
+  xlim(c(-1.5,1.2))+ylim(c(-1.8,1.7))
+p1c=FeaturePlot(subset.atac,reduction = "imputed.umap",features = c("pseudotime"),order = TRUE) + theme(aspect.ratio=1) +
+  scale_colour_gradientn(colours = (brewer.pal(n = 9, name = 'YlGnBu'))) + ggtitle(paste0(samples,", scATAC imputed"))
+p1a; p1b; p1c
+
+pdf(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts/fig3/figure3_coembed_",samples,".pdf"),height = 6,width = 8)
+p1a; p1b; p1c
+dev.off()
+```
+
+### somite
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+origin="somite"
+my.subdata[[origin]] = readRDS(my.subfiles[3]) #load in
+my.subdata[[origin]]=AddMetaData(my.subdata[[origin]],metadata = meta[[origin]][rownames(my.subdata[[origin]]@meta.data),c("broad","annotation_broad","fine","annotation_fine")],col.name = c("broad","annotation_broad","fine","annotation_fine"))
+Idents(my.subdata[[origin]])=my.subdata[[origin]]$annotation_fine
+
+p4b.s=DimPlot(my.subdata[[origin]],label = T,reduction = "xtsne", label.size = 2.5) +ggtitle(paste0(origin))+theme(aspect.ratio=1)
+p4b.0=p4b.s+NoLegend()+ NoAxes()
+
+get_slshot[[origin]]=readRDS(ptfiles[3])[["xtsne"]]
+for (i in seq_along(slingCurves(get_slshot[[origin]]))) {
+  curve_i <- slingCurves(get_slshot[[origin]])[[i]]
+  curve_i <- curve_i$s[curve_i$ord, ]
+  colnames(curve_i) <- c("xtsne_1", "xtsne_2")
+  p4b.0 <- p4b.0 + geom_path(data = as.data.frame(curve_i), aes(x = xtsne_1, y = xtsne_2), col = "black", size = 0.5) 
+}
+p4b.0
+
+my.subdata[[origin]]=AddMetaData(my.subdata[[origin]],slingPseudotime(get_slshot[[origin]])[,"curve2"][rownames(my.subdata[[origin]]@meta.data)],col.name = "pseudotime")
+p4b=FeaturePlot(my.subdata[[origin]],reduction = "xtsne",features=c("pseudotime"),order = TRUE) + theme(aspect.ratio=1) +
+  scale_colour_gradientn(colours = brewer.pal(n = 9, name = 'YlGnBu')) #rev(viridis(10,option="A")
+p4b
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.width=5}
+samples="somite"
+subset.atac=readRDS(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/integration/",samples,"_atac_intgtFine010721_activity.rds"))
+my.meta=readRDS(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/integration/",samples,"_atac_integrated010721_meta.rds"))
+subset.atac=AddMetaData(subset.atac,metadata = my.meta[rownames(subset.atac@meta.data),c("broad","annotation_broad","fine","annotation_fine")],col.name = c("broad","annotation_broad","fine","annotation_fine"))
+pt.meta=readRDS(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/pseudotime/ptime_scatac_",samples,"_summary.rds"))
+my.embeds=readRDS(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/coembed/coembed_embeddings_",samples,".rds"))
+
+DefaultAssay(subset.atac)="activity"
+subset.atac[['mapquery.umap']] <- CreateDimReducObject(embeddings = my.embeds$option1.mapquery[rownames(subset.atac@reductions$lsi),], 
+                                                  key = 'mapquery-UMAP_', assay = subset.atac@active.assay)
+subset.atac[['imputed.xtsne']] <- CreateDimReducObject(embeddings = my.embeds$option2.xtsne[rownames(subset.atac@reductions$lsi),], 
+                                                      key = 'imputed-xtSNE_', assay = subset.atac@active.assay)
+subset.atac[['imputed.umap']] <- CreateDimReducObject(embeddings = my.embeds$option2.umap[rownames(subset.atac@reductions$lsi),], 
+                                                      key = 'imputed-UMAP_', assay = subset.atac@active.assay)
+
+subset.atac <- AddMetaData(
+  object = subset.atac,
+  metadata = pt.meta[rownames(subset.atac@meta.data),c("pseudotime.transferData.relaxed")], col.name = c("pseudotime"))
+
+p1a=FeaturePlot(subset.atac,reduction = "mapquery.umap",features = c("pseudotime"),order = TRUE) + theme(aspect.ratio=1) +
+  scale_colour_gradientn(colours = (brewer.pal(n = 9, name = 'YlGnBu'))) + ggtitle(paste0(samples,", scATAC mapQuery"))
+# use same scale as scRNA data
+p1b=FeaturePlot(subset.atac,reduction = "imputed.xtsne",features = c("pseudotime"),order = TRUE) + theme(aspect.ratio=1) +
+  scale_colour_gradientn(colours = (brewer.pal(n = 9, name = 'YlGnBu'))) + ggtitle(paste0(samples,", scATAC imputed")) +
+  xlim(c(-1.5,1.8))+ylim(c(-1,0.9))
+p1c=FeaturePlot(subset.atac,reduction = "imputed.umap",features = c("pseudotime"),order = TRUE) + theme(aspect.ratio=1) +
+  scale_colour_gradientn(colours = (brewer.pal(n = 9, name = 'YlGnBu'))) + ggtitle(paste0(samples,", scATAC imputed"))
+p1a; p1b; p1c
+
+pdf(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts/fig3/figure3_coembed_",samples,".pdf"),height = 6,width = 8)
+p1a; p1b; p1c
+dev.off()
+```
+
+### limb
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+origin="limb"
+my.subdata[[origin]] = readRDS(my.subfiles[1]) #load in
+my.subdata[[origin]]=AddMetaData(my.subdata[[origin]],metadata = meta[[origin]][rownames(my.subdata[[origin]]@meta.data),c("broad","annotation_broad","fine","annotation_fine")],col.name = c("broad","annotation_broad","fine","annotation_fine"))
+Idents(my.subdata[[origin]])=my.subdata[[origin]]$annotation_fine
+
+p4c.s=DimPlot(my.subdata[[origin]],label = T,reduction = "xtsne", label.size = 2.5) +ggtitle(paste0(origin))+theme(aspect.ratio=1)
+p4c.0=p4c.s+NoLegend()+ NoAxes()
+
+get_slshot[[origin]]=readRDS(ptfiles[1])[["xtsne"]]
+for (i in seq_along(slingCurves(get_slshot[[origin]]))) {
+  curve_i <- slingCurves(get_slshot[[origin]])[[i]]
+  curve_i <- curve_i$s[curve_i$ord, ]
+  colnames(curve_i) <- c("xtsne_1", "xtsne_2")
+  p4c.0 <- p4c.0 + geom_path(data = as.data.frame(curve_i), aes(x = xtsne_1, y = xtsne_2), col = "black", size = 0.5) 
+}
+p4c.0
+
+my.subdata[[origin]]=AddMetaData(my.subdata[[origin]],slingPseudotime(get_slshot[[origin]])[,"curve1"][rownames(my.subdata[[origin]]@meta.data)],col.name = "pseudotime")
+p4c=FeaturePlot(my.subdata[[origin]],reduction = "xtsne",features=c("pseudotime"),order = TRUE) + theme(aspect.ratio=1) +
+  scale_colour_gradientn(colours = brewer.pal(n = 9, name = 'YlGnBu')) #rev(viridis(10,option="A")
+p4c
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.width=5}
+samples="limb"
+subset.atac=readRDS(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/integration/",samples,"_atac_intgtFine010721_activity.rds"))
+my.meta=readRDS(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/integration/",samples,"_atac_integrated010721_meta.rds"))
+subset.atac=AddMetaData(subset.atac,metadata = my.meta[rownames(subset.atac@meta.data),c("broad","annotation_broad","fine","annotation_fine")],col.name = c("broad","annotation_broad","fine","annotation_fine"))
+pt.meta=readRDS(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/pseudotime/ptime_scatac_",samples,"_summary.rds"))
+my.embeds=readRDS(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/coembed/coembed_embeddings_",samples,".rds"))
+
+DefaultAssay(subset.atac)="activity"
+subset.atac[['mapquery.umap']] <- CreateDimReducObject(embeddings = my.embeds$option1.mapquery[rownames(subset.atac@reductions$lsi),], 
+                                                  key = 'mapquery-UMAP_', assay = subset.atac@active.assay)
+subset.atac[['imputed.xtsne']] <- CreateDimReducObject(embeddings = my.embeds$option2.xtsne[rownames(subset.atac@reductions$lsi),], 
+                                                      key = 'imputed-xtSNE_', assay = subset.atac@active.assay)
+subset.atac[['imputed.umap']] <- CreateDimReducObject(embeddings = my.embeds$option2.umap[rownames(subset.atac@reductions$lsi),], 
+                                                      key = 'imputed-UMAP_', assay = subset.atac@active.assay)
+
+subset.atac <- AddMetaData(
+  object = subset.atac,
+  metadata = pt.meta[rownames(subset.atac@meta.data),c("pseudotime.transferData.relaxed")], col.name = c("pseudotime"))
+
+p1a=FeaturePlot(subset.atac,reduction = "mapquery.umap",features = c("pseudotime"),order = TRUE) + theme(aspect.ratio=1) +
+  scale_colour_gradientn(colours = (brewer.pal(n = 9, name = 'YlGnBu'))) + ggtitle(paste0(samples,", scATAC mapQuery"))
+# use same scale as scRNA data
+p1b=FeaturePlot(subset.atac,reduction = "imputed.xtsne",features = c("pseudotime"),order = TRUE) + theme(aspect.ratio=1) +
+  scale_colour_gradientn(colours = (brewer.pal(n = 9, name = 'YlGnBu'))) + ggtitle(paste0(samples,", scATAC imputed")) +
+  xlim(c(-2.5,3))+ylim(c(-1.9,2))
+p1c=FeaturePlot(subset.atac,reduction = "imputed.umap",features = c("pseudotime"),order = TRUE) + theme(aspect.ratio=1) +
+  scale_colour_gradientn(colours = (brewer.pal(n = 9, name = 'YlGnBu'))) + ggtitle(paste0(samples,", scATAC imputed"))
+p1a; p1b; p1c
+
+pdf(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts/fig3/figure3_coembed_",samples,".pdf"),height = 6,width = 8)
+p1a; p1b; p1c
+dev.off()
+```
+
+## log
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+sessionInfo()
+```
+
+

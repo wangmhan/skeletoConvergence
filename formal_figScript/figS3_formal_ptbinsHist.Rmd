@@ -1,0 +1,206 @@
+---
+title: "figure3_ptbin"
+output: 
+  html_document:
+    df_print: paged
+  html_notebook:
+editor_options:
+  chunk_output_type: inline
+---
+
+for panel D-F
+
+```{r setup, message=FALSE, warning=FALSE, echo=FALSE}
+# packages
+library(Seurat);library(ggplot2)
+library(slingshot);library(SingleCellExperiment)
+library(dplyr);library(RColorBrewer)
+library(viridisLite);library(gridExtra)
+source("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/pseudotime/TrAGEDy_functions.R")
+
+# derived from: ~/Rscript/manuscriptFigure/fig4_slingshot.Rmd
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+#function
+get_capture=function(cell_pseudotime,cell_ID, total_nodes, prefix){
+  pseudotime <- cell_pseudotime
+  pseudotime <- pseudotime[ order(pseudotime[,1]), ]
+  pseudotime <- as.matrix(pseudotime)
+  max_pseudo <- max(pseudotime[,1], na.rm=T)
+  
+  #Get pseudotime of nodes
+  interval <- max_pseudo / (total_nodes + 1)
+  node_pseudotime_vector <- c(interval)
+  #Include 0 as a node but not the maximum
+  for (node in 2:total_nodes){ 
+    node_pseudotime_vector <- append(node_pseudotime_vector, (node_pseudotime_vector[(node-1)] + interval))
+  }
+  node_names <- paste0(prefix, "_" ,seq(1, total_nodes, 1) )
+  
+  #make the tree
+  node_tree <- data.frame("Child", "Parent")
+  
+  #Don't want to make the last node a parent so we'll stop the loop before then
+  for (node in 1:(length(node_names)-1)){
+    node_tree <- rbind( node_tree , c( node_names[node+1], node_names[node]) )
+  }
+  
+  node_pseudotime <- data.frame(node_pseudotime_vector,row.names=node_names)
+  colnames(node_pseudotime) <- "pseudotime"
+  
+  #Get most common cell type for node
+  captures <- cell_capture(pseudotime, node_pseudotime)
+  
+  return(captures)
+}
+
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+col.ctype=read.csv("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/colors/embed_colorCode.txt",header = F)
+# need to reassign chondrocytes!! due to there are 3
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.width=8}
+nbin.used=40
+name.extra=""
+
+#################
+## nasal
+origin.wt="nasal";
+
+WT_sce = readRDS(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/pseudotime/scrna_preprocessPtimeForAlign_",name.extra,origin.wt,".rds"))
+WT_cell_pseudotime <- matrix(WT_sce$pseudotime, dimnames =list(rownames(WT_sce@meta.data)))
+WT_ID <- data.frame(WT_sce$annotation_fine, row.names =rownames(WT_sce@meta.data))
+WT_tree <- nodePseudotime(WT_cell_pseudotime,WT_ID, nbin.used, "WT")
+
+captures=get_capture(cell_pseudotime=WT_cell_pseudotime,cell_ID=WT_ID,total_nodes=nbin.used,prefix="WT")
+ptbins=NULL
+for(i in 1:length(captures)){
+  tmp.bin=captures[[i]]
+  tmp.df=data.frame(cellid=tmp.bin,
+                    ptbin=names(captures)[i])
+  ptbins=rbind(ptbins,tmp.df)
+}
+rownames(ptbins)=ptbins$cellid
+
+meta=WT_sce@meta.data
+meta$ptbins.trg=ptbins[rownames(meta),"ptbin"]
+meta$ptbins.trg=factor(meta$ptbins.trg,levels = paste0("WT_",1:40))
+table(meta$ptbins.trg)
+
+#WT_tree$pseudotime$pseudotime[1] #WT_1  0.0835677 
+#quantile(meta[meta$ptbins.trg=="WT_1","pseudotime"])
+#        0%        25%        50%        75%       100% 
+#0.00000000 0.05859799 0.08347229 0.10161503 0.12408339 
+
+tmp=col.ctype[col.ctype$V1 %in% unique(meta$annotation_fine),];dim(tmp)
+my.cols=tmp$V2;names(my.cols)=tmp$V1
+my.cols["chondrocytes"]="#DC0078"
+
+g = ggplot(data.frame(meta),aes(x=ptbins.trg,group=annotation_fine)) + theme_classic()
+g1=g + geom_bar(aes(fill = annotation_fine),position="fill") +
+  scale_fill_manual(values=my.cols) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle(origin.wt)
+
+#################
+## somite
+origin.wt="somite";
+
+WT_sce = readRDS(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/pseudotime/scrna_preprocessPtimeForAlign_",name.extra,origin.wt,".rds"))
+WT_cell_pseudotime <- matrix(WT_sce$pseudotime, dimnames =list(rownames(WT_sce@meta.data)))
+WT_ID <- data.frame(WT_sce$annotation_fine, row.names =rownames(WT_sce@meta.data))
+WT_tree <- nodePseudotime(WT_cell_pseudotime,WT_ID, nbin.used, "WT")
+
+captures=get_capture(cell_pseudotime=WT_cell_pseudotime,cell_ID=WT_ID,total_nodes=nbin.used,prefix="WT")
+ptbins=NULL
+for(i in 1:length(captures)){
+  tmp.bin=captures[[i]]
+  tmp.df=data.frame(cellid=tmp.bin,
+                    ptbin=names(captures)[i])
+  ptbins=rbind(ptbins,tmp.df)
+}
+rownames(ptbins)=ptbins$cellid
+
+meta=WT_sce@meta.data
+meta$ptbins.trg=ptbins[rownames(meta),"ptbin"]
+meta$ptbins.trg=factor(meta$ptbins.trg,levels = paste0("WT_",1:40))
+table(meta$ptbins.trg)
+
+#WT_tree$pseudotime$pseudotime[1] #WT_1  0.07892921 
+#quantile(meta[meta$ptbins.trg=="WT_1","pseudotime"])
+#        0%        25%        50%        75%       100% 
+#0.00000000 0.04192629 0.06586375 0.09105940 0.11738047 
+
+tmp=col.ctype[col.ctype$V1 %in% unique(meta$annotation_fine),];dim(tmp)
+my.cols=tmp$V2;names(my.cols)=tmp$V1
+my.cols["chondrocytes"]="#00416A"
+
+g = ggplot(data.frame(meta),aes(x=ptbins.trg,group=annotation_fine)) + theme_classic()
+g2=g + geom_bar(aes(fill = annotation_fine),position="fill") +
+  scale_fill_manual(values=my.cols) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle(origin.wt)
+
+#################
+## limb
+origin.wt="limb";
+
+WT_sce = readRDS(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/pseudotime/scrna_preprocessPtimeForAlign_",name.extra,origin.wt,".rds"))
+WT_cell_pseudotime <- matrix(WT_sce$pseudotime, dimnames =list(rownames(WT_sce@meta.data)))
+WT_ID <- data.frame(WT_sce$annotation_fine, row.names =rownames(WT_sce@meta.data))
+WT_tree <- nodePseudotime(WT_cell_pseudotime,WT_ID, nbin.used, "WT")
+
+captures=get_capture(cell_pseudotime=WT_cell_pseudotime,cell_ID=WT_ID,total_nodes=nbin.used,prefix="WT")
+ptbins=NULL
+for(i in 1:length(captures)){
+  tmp.bin=captures[[i]]
+  tmp.df=data.frame(cellid=tmp.bin,
+                    ptbin=names(captures)[i])
+  ptbins=rbind(ptbins,tmp.df)
+}
+rownames(ptbins)=ptbins$cellid
+
+meta=WT_sce@meta.data
+meta$ptbins.trg=ptbins[rownames(meta),"ptbin"]
+meta$ptbins.trg=factor(meta$ptbins.trg,levels = paste0("WT_",1:40))
+table(meta$ptbins.trg)
+
+#WT_tree$pseudotime$pseudotime[1] #WT_1  0.1500633 
+#quantile(meta[meta$ptbins.trg=="WT_1","pseudotime"])
+#        0%        25%        50%        75%       100% 
+#0.00000000 0.00000000 0.00000000 0.04438064 0.22362151 
+
+tmp=col.ctype[col.ctype$V1 %in% unique(meta$annotation_fine),];dim(tmp)
+my.cols=tmp$V2;names(my.cols)=tmp$V1
+my.cols["chondrocytes"]="#FFD01F"
+
+g = ggplot(data.frame(meta),aes(x=ptbins.trg,group=annotation_fine)) + theme_classic()
+g3=g + geom_bar(aes(fill = annotation_fine),position="fill") +
+  scale_fill_manual(values=my.cols) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle(origin.wt)
+
+# plot
+g1;g2;g3
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+pdf("~/figure_drafts/fig3_ptbinCelltypePercentage_TrAGEDy_LNS.pdf",width = 8,height = 6)
+g1;g2;g3
+dev.off()
+```
+
+## log
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+sessionInfo()
+```

@@ -1,0 +1,116 @@
+---
+title: "batchCorrected_embeds"
+output: 
+  html_document:
+    df_print: paged
+  html_notebook:
+editor_options:
+  chunk_output_type: inline
+--- 
+
+for panel E-F
+
+```{r setup, message=FALSE, warning=FALSE, echo=FALSE}
+library(Signac); library(Seurat)
+library(GenomeInfoDb); library(ensembldb)
+library(BSgenome.Ggallus.ensembl.galGal6)
+library(scran);library(ggplot2)
+
+set.seed(1234)
+```
+
+## color code
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+#color code
+alevels=c("cranialMesenchyme","amb_cranialMesenchyme","Neurons(nasal)","NeuronalCells","Skin(nasal)","Vessels(nasal)","Blood(nasal)","CyclingCells(nasal)","proliferatingNeurons",
+          "Sclerotome","Dermomyotome","amb_Dermomyotome","lateralPlateMesoderm","neuralTubeProgenitors","neuralTubeProgenitorsOrNeurons","Neurons(somite)","neuralCrest","intermediateMesoderm","Skin(somite)","Vessels(somite)","Blood(somite)",
+          "Mesenchyme","MesenchymeORskeletogenicCells","skeletogenicCells","amb_Mesenchyme","Muscle","Skin(limb)","Leukocytes","posteriorMesenchyme","CyclingCells(limb)")
+
+mcolors2=c("#DC0078", "#666666", "#666666", "#666666", "#666666", "#666666", "#666666","#666666","#666666",
+          "#008FD4","#ABABAB","#ABABAB","#ABABAB", "#ABABAB","#ABABAB","#ABABAB", "#ABABAB","#ABABAB","#ABABAB","#ABABAB", "#ABABAB",
+          "#FFD01F","#FF7F50","#FFA309","#CCCCCC", "#CCCCCC","#CCCCCC","#CCCCCC","#CCCCCC","#CCCCCC")
+names(mcolors2)=alevels
+```
+
+## scATAC
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+converged=readRDS("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/integration/scATAC_correctedEmbeds.rds")
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+converged@meta.data$annotation_broad_v1=converged@meta.data$annotation_broad
+
+converged@meta.data[converged@meta.data$origin=="nasal" & converged@meta.data$annotation_broad=="Neurons","annotation_broad"]="Neurons(nasal)"
+converged@meta.data[converged@meta.data$origin=="nasal" & converged@meta.data$annotation_broad=="Skin","annotation_broad"]="Skin(nasal)"
+converged@meta.data[converged@meta.data$origin=="nasal" & converged@meta.data$annotation_broad=="Vessels","annotation_broad"]="Vessels(nasal)"
+converged@meta.data[converged@meta.data$origin=="nasal" & converged@meta.data$annotation_broad=="Blood","annotation_broad"]="Blood(nasal)"
+
+converged@meta.data[converged@meta.data$origin=="somite" & converged@meta.data$annotation_broad=="Neurons","annotation_broad"]="Neurons(somite)"
+converged@meta.data[converged@meta.data$origin=="somite" & converged@meta.data$annotation_broad=="Skin","annotation_broad"]="Skin(somite)"
+converged@meta.data[converged@meta.data$origin=="somite" & converged@meta.data$annotation_broad=="Vessels","annotation_broad"]="Vessels(somite)"
+converged@meta.data[converged@meta.data$origin=="somite" & converged@meta.data$annotation_broad=="Blood","annotation_broad"]="Blood(somite)"
+
+converged@meta.data[converged@meta.data$origin=="limb" & converged@meta.data$annotation_broad=="Skin","annotation_broad"]="Skin(limb)"
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.width=12,fig.height=8}
+p3=DimPlot(converged,group.by = "annotation_broad",label = T,label.size = 1.5,
+           reduction = "tsne",cols = mcolors2,
+           shape.by = "origin",raster = F) + NoLegend() + 
+  scale_shape_manual(values=c(18, 17, 16)) +
+  ggtitle(paste0("scATAC",": broad annotation"))+theme(aspect.ratio=1)
+p3
+
+pdf("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/figure_drafts/figure2_B_v2.pdf",height = 6,width = 6)
+p3
+dev.off()
+```
+
+## scRNA
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+converged.rna=readRDS("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/integration/scRNA_correctedEmbeds.rds")
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+converged.rna@meta.data$annotation_broad_v1=converged.rna@meta.data$annotation_broad
+converged.rna@meta.data$annotation_broad=as.character(converged.rna@meta.data$annotation_broad)
+
+converged.rna@meta.data[converged.rna@meta.data$origin=="nasal" & converged.rna@meta.data$annotation_broad=="Neurons","annotation_broad"]="Neurons(nasal)"
+converged.rna@meta.data[converged.rna@meta.data$origin=="nasal" & converged.rna@meta.data$annotation_broad=="Skin","annotation_broad"]="Skin(nasal)"
+converged.rna@meta.data[converged.rna@meta.data$origin=="nasal" & converged.rna@meta.data$annotation_broad=="Vessels","annotation_broad"]="Vessels(nasal)"
+converged.rna@meta.data[converged.rna@meta.data$origin=="nasal" & converged.rna@meta.data$annotation_broad=="Blood","annotation_broad"]="Blood(nasal)"
+converged.rna@meta.data[converged.rna@meta.data$origin=="nasal" & converged.rna@meta.data$annotation_broad=="CyclingCells","annotation_broad"]="CyclingCells(nasal)"
+
+converged.rna@meta.data[converged.rna@meta.data$origin=="somite" & converged.rna@meta.data$annotation_broad=="Neurons","annotation_broad"]="Neurons(somite)"
+converged.rna@meta.data[converged.rna@meta.data$origin=="somite" & converged.rna@meta.data$annotation_broad=="Skin","annotation_broad"]="Skin(somite)"
+converged.rna@meta.data[converged.rna@meta.data$origin=="somite" & converged.rna@meta.data$annotation_broad=="Vessels","annotation_broad"]="Vessels(somite)"
+converged.rna@meta.data[converged.rna@meta.data$origin=="somite" & converged.rna@meta.data$annotation_broad=="Blood","annotation_broad"]="Blood(somite)"
+
+converged.rna@meta.data[converged.rna@meta.data$origin=="limb" & converged.rna@meta.data$annotation_broad=="Skin","annotation_broad"]="Skin(limb)"
+converged.rna@meta.data[converged.rna@meta.data$origin=="limb" & converged.rna@meta.data$annotation_broad=="Blood","annotation_broad"]="Blood(limb)"
+converged.rna@meta.data[converged.rna@meta.data$origin=="limb" & converged.rna@meta.data$annotation_broad=="CyclingCells","annotation_broad"]="CyclingCells(limb)"
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.width=12,fig.height=8}
+converged.rna$origin=factor(converged.rna$origin,levels = c("limb","nasal","somite"))
+p3=DimPlot(converged.rna,group.by = "annotation_broad",label = T,label.size = 1.5,
+           reduction = "tsne",cols = mcolors2,
+           shape.by = "origin",raster = F) + NoLegend() + 
+  scale_shape_manual(values=c(18, 17, 16)) +
+  ggtitle(paste0("scRNA",": broad annotation"))+theme(aspect.ratio=1)
+p3
+
+pdf("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/figure_drafts/figure2_A_v2.pdf",height = 6,width = 6)
+p3
+dev.off()
+```
+
+## log
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+sessionInfo()
+```
+

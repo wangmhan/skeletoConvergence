@@ -1,0 +1,242 @@
+---
+title: "motif similarity"
+output: 
+  html_document:
+    df_print: paged
+  html_notebook:
+editor_options:
+  chunk_output_type: inline
+---
+
+for panel I
+
+```{r setup, message=FALSE, warning=FALSE, echo=FALSE}
+library(ggplot2)
+library(reshape2); library(dplyr); library(plyr)
+library(TFBSTools);library(RColorBrewer)
+
+set.seed(1234)
+
+```
+
+## motif similairty boxplot
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+score.collect=function(mf.tmp=mf.tmp,sim.selected=sim.selected){
+  mf.tmp=mf.tmp[mf.tmp$tfname %in% names(table(mf.tmp$tfname)[table(mf.tmp$tfname)>=2]),]
+  sim.selected=sim.selected[rownames(sim.selected) %in% mf.tmp$tfOrigin,colnames(sim.selected) %in% mf.tmp$tfOrigin]
+  
+  score.ln=NULL;score.ls=NULL;score.ns=NULL
+  tfnam.ln=NULL;tfnam.ls=NULL;tfnam.ns=NULL
+  mf1.ln=NULL;mf1.ls=NULL;mf1.ns=NULL
+  mf2.ln=NULL;mf2.ls=NULL;mf2.ns=NULL
+  for(i in 1:length(unique(mf.tmp$tfname))){
+    tmp.name=unique(mf.tmp$tfname)[i]
+    #tmp.name="SMAD3|SMAD2Z|ENSGALG00000014184"
+    tmp.name=gsub("\\|","\\\\|",tmp.name) #to avoid influence by "|"
+    tmp.sim=sim.selected[grepl(paste0("^",tmp.name,","),rownames(sim.selected)),
+                         grepl(paste0("^",tmp.name,","),colnames(sim.selected))]
+    nrow(tmp.sim)
+    if(nrow(tmp.sim)>3){print(tmp.name)}
+    
+    tmp.ln=tmp.sim[grepl("L-",rownames(tmp.sim)),
+                   grepl("N-",colnames(tmp.sim))]
+    tmp.ls=tmp.sim[grepl("L-",rownames(tmp.sim)),
+                   grepl("S-",colnames(tmp.sim))]
+    tmp.ns=tmp.sim[grepl("N-",rownames(tmp.sim)),
+                   grepl("S-",colnames(tmp.sim))]
+    if(length(tmp.ln)!=0){
+      score.ln=c(score.ln,tmp.ln);tfnam.ln=c(tfnam.ln,unique(mf.tmp$tfname)[i]);
+      mf1.ln=c(mf1.ln,rownames(tmp.sim)[grepl("L-",rownames(tmp.sim))])
+      mf2.ln=c(mf2.ln,rownames(tmp.sim)[grepl("N-",rownames(tmp.sim))])
+    }
+    if(length(tmp.ls)!=0){
+      score.ls=c(score.ls,tmp.ls);tfnam.ls=c(tfnam.ls,unique(mf.tmp$tfname)[i])
+      mf1.ls=c(mf1.ls,rownames(tmp.sim)[grepl("L-",rownames(tmp.sim))])
+      mf2.ls=c(mf2.ls,rownames(tmp.sim)[grepl("S-",rownames(tmp.sim))])
+    }
+    if(length(tmp.ns)!=0){
+      score.ns=c(score.ns,tmp.ns);tfnam.ns=c(tfnam.ns,unique(mf.tmp$tfname)[i])
+      mf1.ns=c(mf1.ns,rownames(tmp.sim)[grepl("N-",rownames(tmp.sim))])
+      mf2.ns=c(mf2.ns,rownames(tmp.sim)[grepl("S-",rownames(tmp.sim))])
+    }
+  }
+  score.ln=as.numeric(unlist(score.ln))
+  score.ls=as.numeric(unlist(score.ls))
+  score.ns=as.numeric(unlist(score.ns))
+  
+  score.lns=NULL
+  score.lns=data.frame(score=c(unlist(score.ln),unlist(score.ls),unlist(score.ns)),
+                       category=c(rep("LvsN",length(score.ln)),rep("LvsS",length(score.ls)),rep("NvsS",length(score.ns))),
+                       TF=c(tfnam.ln,tfnam.ls,tfnam.ns),
+                       motif1=c(mf1.ln,mf1.ls,mf1.ns),
+                       motif2=c(mf2.ln,mf2.ls,mf2.ns)
+  )
+  
+  return(score.lns)
+}
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+## compare between same motif: derived from step3_calculateSimilarity.Rmd
+score.compare=readRDS("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/motifEnrich/MotifSimilarity_pairwiseComparison_freq2_forNonMschymEach.rds")
+sim.mtx=NULL
+for(i in 1:length(score.compare)){
+  tmp.mtx=data.frame(score=score.compare[[i]]$score,
+                     celltype=rep(names(score.compare)[i],nrow(score.compare[[i]])))
+  sim.mtx=rbind(sim.mtx,tmp.mtx)
+}
+
+#names(score.compare)
+sim.mtx$celltype=factor(sim.mtx$celltype,levels = c("mschym","neuron","blood","skin","vessel"))
+
+sim.mtx$broad=""
+sim.mtx[sim.mtx$celltype!="mesenchyme","broad"]="nonMesenchyme"
+sim.mtx[sim.mtx$celltype=="mesenchyme","broad"]="Mesenchyme"
+table(sim.mtx$broad)
+
+sim.mtx$broad=""
+sim.mtx[!(sim.mtx$celltype %in% c("mesenchyme","non")),"broad"]="non-Mschym each"
+sim.mtx[sim.mtx$celltype=="mschym","broad"]="Mesenchyme"
+table(sim.mtx$broad)
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+## compare between different motif: derived from fig4_motifSimilarity.Rmd
+mf.lns=readRDS("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/motifEnrich/nonMesenchyme_MotiFreq2_info.rds")
+sim.select=readRDS("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/motifEnrich/nonMesenchyme_MotifSimilarity_freq2.rds")
+sim.selected=sim.select[mf.lns$tfOrigin,mf.lns$tfOrigin];dim(sim.selected)
+
+score.compare=list()
+
+mf.tmp=mf.lns[grepl("Blood|Leukocytes",mf.lns$clsname),];dim(mf.tmp)
+score.compare[["blood"]]=score.collect(mf.tmp=mf.tmp,sim.selected=sim.selected);table(score.compare[["blood"]]$category)
+
+mf.tmp=mf.lns[grepl("Skin",mf.lns$clsname),];dim(mf.tmp)
+score.compare[["skin"]]=score.collect(mf.tmp=mf.tmp,sim.selected=sim.selected);table(score.compare[["skin"]]$category)
+
+mf.tmp=mf.lns[grepl("Neurons|neuralTubeProgenitorsOrNeurons|neuralTubeProgenitors",mf.lns$clsname),];dim(mf.tmp)
+score.compare[["neuron"]]=score.collect(mf.tmp=mf.tmp,sim.selected=sim.selected);table(score.compare[["neuron"]]$category)
+
+mf.tmp=mf.lns[grepl("Vessels",mf.lns$clsname),];dim(mf.tmp)
+score.compare[["vessel"]]=score.collect(mf.tmp=mf.tmp,sim.selected=sim.selected);table(score.compare[["vessel"]]$category)
+
+mf.lns.mschym=readRDS("~/figure_drafts/mesenchyme_MotiFreq2_info.rds")
+sim.select.mschym=readRDS("~/figure_drafts/mesenchyme_MotifSimilarity_freq2.rds")
+score.compare[["mesenchyme"]]=score.collect(mf.tmp=mf.lns.mschym,sim.selected = sim.select.mschym);table(score.compare[["mesenchyme"]]$category)
+
+#saveRDS(score.compare,"/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/motifEnrich/MotifSimilarity_pairwiseComparison_freq2_forNonMschymEach_differentMotifs.rds")
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+score.compare=readRDS("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/motifEnrich/MotifSimilarity_pairwiseComparison_freq2_forNonMschymEach_differentMotifs.rds")
+
+sim.mtx=data.frame(score=c(score.compare[["mesenchyme"]]$score,score.compare[["neuron"]]$score,score.compare[["skin"]]$score,score.compare[["blood"]]$score,score.compare[["vessel"]]$score),
+                   celltype=c(rep("mesenchyme",nrow(score.compare[["mesenchyme"]])),rep("neuron",nrow(score.compare[["neuron"]])),rep("skin",nrow(score.compare[["skin"]])),rep("blood",nrow(score.compare[["blood"]])),rep("vessel",nrow(score.compare[["vessel"]]))))
+
+sim.mtx$broad=""
+sim.mtx[as.character(sim.mtx$celltype)!="mesenchyme","broad"]="nonMesenchyme"
+sim.mtx[as.character(sim.mtx$celltype)=="mesenchyme","broad"]="Mesenchyme"
+table(sim.mtx$broad)
+
+sim.mtx$celltype=factor(sim.mtx$celltype,levels = c("mesenchyme","neuron","skin","blood"))
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+sim.mtx=list()
+
+## keep unique comparison: mesenchyme
+#check how many of the motifs are shared in mesenchyme
+tmp1=readRDS("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/motifEnrich/MotifSimilarity_pairwiseComparison_freq2_forNonMschymEach_differentMotifs.rds")
+tmp2=readRDS("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/motifEnrich/MotifSimilarity_pairwiseComparison_freq2_forNonMschymEach.rds")
+
+table(tmp1$mesenchyme$category);table(tmp2$mschym$category)
+tmp1$mesenchyme$unique=paste0(sapply(strsplit(tmp1$mesenchyme$motif1,","),"[",2),",",
+                              sapply(strsplit(tmp1$mesenchyme$motif2,","),"[",2))
+tmp2$mschym$unique=paste0(sapply(strsplit(tmp2$mschym$motif1,","),"[",2),",",
+                              sapply(strsplit(tmp2$mschym$motif2,","),"[",2))
+
+tmp.olp=tmp1$mesenchyme$unique[tmp1$mesenchyme$unique %in% tmp2$mschym$unique];length(tmp.olp)
+tmp1.test=tmp1$mesenchyme;tmp1.test=tmp1.test[!duplicated(tmp1.test$unique),]
+rownames(tmp1.test)=tmp1.test$unique
+tmp2.test=tmp2$mschym;rownames(tmp2.test)=tmp2.test$unique
+
+rownames(tmp1.test)=1:nrow(tmp1.test);rownames(tmp2.test)=1001:(1000+nrow(tmp2.test))
+sim.mtx[["mesenchyme"]]=rbind(tmp1.test[,c("score","category","unique")],tmp2.test[,c("score","category","unique")])
+sim.mtx[["mesenchyme"]]=sim.mtx[["mesenchyme"]][!duplicated(sim.mtx[["mesenchyme"]]$unique),];dim(sim.mtx[["mesenchyme"]])
+
+## keep unique comparison: non-mesenchyme, same motifs
+tmp2=readRDS("~/scATAC/motifenrich/forStamp/MotifSimilarity_pairwiseComparison_freq2_forNonMschymEach.rds")
+names(tmp2);tmp2$mschym=NULL
+test.mtx=NULL
+for(i in 1:length(tmp2)){
+  tmp2[[i]]$unique=paste0(sapply(strsplit(tmp2[[i]]$motif1,","),"[",2),",",
+                            sapply(strsplit(tmp2[[i]]$motif2,","),"[",2))
+  tmp2[[i]]=tmp2[[i]][!duplicated(tmp2[[i]]$unique),]
+  tmp2[[i]]$celltype=names(tmp2)[i]
+  tmp.mtx=tmp2[[i]][,c("score","category","unique","celltype")]
+  test.mtx=rbind(test.mtx,tmp.mtx)
+}
+table(test.mtx$celltype)
+sim.mtx[["nonMesenchyme-sameMotifs"]]=test.mtx
+
+## keep unique comparison: non-mesenchyme, different motifs
+tmp2=readRDS("~/scATAC/motifenrich/forStamp/MotifSimilarity_pairwiseComparison_freq2_forNonMschymEach_differentMotifs.rds")
+names(tmp2);tmp2$mesenchyme=NULL
+test.mtx=NULL
+for(i in 1:length(tmp2)){
+  tmp2[[i]]$unique=paste0(sapply(strsplit(tmp2[[i]]$motif1,","),"[",2),",",
+                          sapply(strsplit(tmp2[[i]]$motif2,","),"[",2))
+  tmp2[[i]]=tmp2[[i]][!duplicated(tmp2[[i]]$unique),]
+  tmp2[[i]]$celltype=names(tmp2)[i]
+  tmp.mtx=tmp2[[i]][,c("score","category","unique","celltype")]
+  test.mtx=rbind(test.mtx,tmp.mtx)
+}
+table(test.mtx$celltype)
+sim.mtx[["nonMesenchyme-diffMotifs"]]=test.mtx
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+combn.mtx=rbind(sim.mtx$mesenchyme[,1:3],
+                sim.mtx$`nonMesenchyme-sameMotifs`[,1:3],
+                sim.mtx$`nonMesenchyme-diffMotifs`[,1:3])
+combn.mtx$broad=c(rep("Mschym",nrow(sim.mtx$mesenchyme)),
+                  rep("nonMschym.sameTF",nrow(sim.mtx$`nonMesenchyme-sameMotifs`)),
+                  rep("nonMschym.diffTF",nrow(sim.mtx$`nonMesenchyme-diffMotifs`)))
+
+combn.mtx$broad=factor(combn.mtx$broad,levels = c("Mschym","nonMschym.sameTF","nonMschym.diffTF"))
+p1=ggplot(combn.mtx,aes(x=broad, y=score)) +
+  #scale_fill_manual(values=c("#FFE78A", "#FFC0CB", "#8BD6FF")) +
+  geom_boxplot(outlier.colour="white") + #(draw_quantiles = c(.50))
+  stat_summary(fun.y=mean, geom="point", shape=23, size=4) +
+  ylab("Similarity Score") + xlab("Cell Type") + #ylim(c(0,1)) +
+  theme_classic() + ggtitle("Motif similarity") +
+  theme(legend.text = element_text(size=10),
+        axis.text.x = element_text(size=10,angle=-30,hjust=0.1),
+        axis.text.y = element_text(size=10),
+        axis.title = element_text(size=15))
+p1
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+pdf(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts/fig4/celltypeBased_MotifSimilarity_3groups.pdf"),height = 4,width = 6)
+p1
+dev.off()
+```
+
+## log
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+sessionInfo()
+```
+

@@ -1,0 +1,404 @@
+---
+title: "figure3_ptbin"
+output: 
+  html_document:
+    df_print: paged
+  html_notebook:
+editor_options:
+  chunk_output_type: inline
+---
+
+for panel A-C
+
+```{r setup, message=FALSE, warning=FALSE, echo=FALSE}
+# packages
+library(Seurat);library(ggplot2)
+library(slingshot)
+library(dplyr);library(RColorBrewer)
+library(viridisLite);library(gridExtra)
+
+# derived from: ~/Rscript/manuscriptFigure/fig4_slingshot.Rmd
+```
+
+## function
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+stackedbar.new = function(input=hm.integrated@meta.data,cname=c("dataset","annonew"),cols=my.cols){
+  predict = as.data.frame(input[,cname])
+  colnames(predict) = c("stage","annotation")
+  
+  predict$stage=factor(predict$stage)
+  g = ggplot(predict,aes(annotation)) + theme_classic() + theme(axis.text.x = element_text(angle = 45,hjust=1))
+  g1=g + geom_bar(aes(fill = stage)) +
+    scale_fill_manual("legend", values = cols)
+  g2=g + geom_bar(aes(fill = stage),position="fill") +
+    scale_fill_manual("legend", values = cols)
+  
+  perc=table(predict$stage,predict$annotation)
+  perc=perc/rowSums(perc)*100; mperc=melt(perc)
+  tperc=t(perc);tperc=tperc/rowSums(tperc)*100; mperc=melt(t(tperc))
+  g3=ggplot(mperc, aes(x = Var2, y = value)) + theme_classic() + theme(axis.text.x = element_text(angle = 45,hjust=1))+
+    geom_col(aes(fill = Var1), width = 0.7)+
+    scale_fill_manual("legend", values = cols)
+  
+  print(g1+ggtitle("cell numbers")+guides(fill = FALSE)+ #g2+ggtitle("percentage")+
+          g3+ggtitle("percentage (normalized)"))
+}
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+save_pheatmap_pdf <- function(x, filename, width=6, height=4) {
+   stopifnot(!missing(x))
+   stopifnot(!missing(filename))
+   pdf(filename, width=width, height=height)
+   grid::grid.newpage()
+   grid::grid.draw(x$gtable)
+   dev.off()
+}
+```
+
+## compare scRNA & scMulti
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+library(patchwork)
+my.origins=c("nasal","somite","limb")
+
+bins.used=list()
+bins.used[["nasal"]]=2:11
+bins.used[["somite"]]=5:14
+bins.used[["limb"]]=3:12
+
+col.ctype=read.csv("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/colors/embed_colorCode.txt",header = F)
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.width=12,fig.height=5}
+origin=my.origins[1]
+
+# this is used for getting consistent 10 bins between scRNA & scATAC
+ph=readRDS(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/pseudotime/ptbinMatrix_scRNAscATAC_N10_",origin,".rds"))
+# this is used for getting 10 bins for scRNA, the same definition of bins for scATAC (some bins might missing)
+ph.rna=readRDS(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/pseudotime/ptbinMatrix_N10_",origin,".rds"))
+
+## scRNA
+head(ph$ptime.scrna);table(ph$ptime.scrna$ptbins)
+ptbin.scmulti=ph$ptime.scrna[ph$ptime.scrna$ptbins %in% bins.used[[origin]],];dim(ptbin.scmulti)
+
+head(ph.rna$ptime.scrna);table(ph.rna$ptime.scrna$ptbins)
+ptbin.scrna=ph.rna$ptime.scrna[ph.rna$ptime.scrna$ptbins %in% c(1:10),];dim(ptbin.scrna)
+
+# customized color
+tmp=col.ctype[col.ctype$V1 %in% unique(c(ph$ptime.scatac$annotation_fine,ptbin.scrna$annotation_fine)),];dim(tmp)
+my.cols=tmp$V2;names(my.cols)=tmp$V1
+my.cols["chondrocytes"]="#DC0078"
+
+g1 = ggplot(data.frame(ptbin.scmulti),aes(x=ptbins,group=annotation_fine)) + theme_classic()
+g1=g1 + geom_bar(aes(fill = annotation_fine),position="fill") +
+  scale_fill_manual(values=my.cols) + ggtitle("scMulti")
+
+g2 = ggplot(data.frame(ptbin.scrna),aes(x=ptbins,group=annotation_fine)) + theme_classic()
+g2=g2 + geom_bar(aes(fill = annotation_fine),position="fill") +
+  scale_fill_manual(values=my.cols) +ggtitle("scRNA")
+
+g1+g2
+
+## scATAC
+table(ph$ptime.scatac$ptbins)
+ptbin.scmulti.atac=ph$ptime.scatac[ph$ptime.scatac$ptbins %in% bins.used[[origin]],];dim(ptbin.scmulti.atac)
+
+table(ph.rna$ptime.scatac$ptbins)
+ptbin.scatac=ph.rna$ptime.scatac[ph.rna$ptime.scrna$ptbins %in% c(1:10),];dim(ptbin.scatac)
+
+g3 = ggplot(data.frame(ptbin.scmulti.atac),aes(x=ptbins,group=annotation_fine)) + theme_classic()
+g3=g3 + geom_bar(aes(fill = annotation_fine),position="fill") +
+  scale_fill_manual(values=my.cols) +ggtitle("scMulti")
+
+g4 = ggplot(data.frame(ptbin.scatac),aes(x=ptbins,group=annotation_fine)) + theme_classic()
+g4=g4 + geom_bar(aes(fill = annotation_fine),position="fill") +
+  scale_fill_manual(values=my.cols) +ggtitle("scATAC")
+
+g3+g4
+
+pdf(paste0("~/figure_drafts/ptbinMatrix_scMultiCompare_",origin,".pdf"),height = 5,width = 12)
+g1+g2;g3+g4
+dev.off()
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.width=12,fig.height=5}
+origin=my.origins[2]
+
+ph=readRDS(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/pseudotime/ptbinMatrix_scRNAscATAC_N10_",origin,".rds"))
+ph.rna=readRDS(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/pseudotime/ptbinMatrix_N10_",origin,".rds"))
+
+## scRNA
+head(ph$ptime.scrna);table(ph$ptime.scrna$ptbins)
+ptbin.scmulti=ph$ptime.scrna[ph$ptime.scrna$ptbins %in% bins.used[[origin]],];dim(ptbin.scmulti)
+
+head(ph.rna$ptime.scrna);table(ph.rna$ptime.scrna$ptbins)
+ptbin.scrna=ph.rna$ptime.scrna[ph.rna$ptime.scrna$ptbins %in% c(1:10),];dim(ptbin.scrna)
+
+# customized color
+tmp=col.ctype[col.ctype$V1 %in% unique(c(ph$ptime.scatac$annotation_fine,ptbin.scrna$annotation_fine)),];dim(tmp)
+my.cols=tmp$V2;names(my.cols)=tmp$V1
+my.cols["chondrocytes"]="#00416A"
+
+g1 = ggplot(data.frame(ptbin.scmulti),aes(x=ptbins,group=annotation_fine)) + theme_classic()
+g1=g1 + geom_bar(aes(fill = annotation_fine),position="fill") +
+  scale_fill_manual(values=my.cols) + ggtitle("scMulti")
+
+g2 = ggplot(data.frame(ptbin.scrna),aes(x=ptbins,group=annotation_fine)) + theme_classic()
+g2=g2 + geom_bar(aes(fill = annotation_fine),position="fill") +
+  scale_fill_manual(values=my.cols) +ggtitle("scRNA")
+
+g1+g2
+
+## scATAC
+table(ph$ptime.scatac$ptbins)
+ptbin.scmulti.atac=ph$ptime.scatac[ph$ptime.scatac$ptbins %in% bins.used[[origin]],];dim(ptbin.scmulti.atac)
+
+table(ph.rna$ptime.scatac$ptbins)
+ptbin.scatac=ph.rna$ptime.scatac[ph.rna$ptime.scrna$ptbins %in% c(1:10),];dim(ptbin.scatac)
+
+g3 = ggplot(data.frame(ptbin.scmulti.atac),aes(x=ptbins,group=annotation_fine)) + theme_classic()
+g3=g3 + geom_bar(aes(fill = annotation_fine),position="fill") +
+  scale_fill_manual(values=my.cols) +ggtitle("scMulti")
+
+g4 = ggplot(data.frame(ptbin.scatac),aes(x=ptbins,group=annotation_fine)) + theme_classic()
+g4=g4 + geom_bar(aes(fill = annotation_fine),position="fill") +
+  scale_fill_manual(values=my.cols) +ggtitle("scATAC")
+
+g3+g4
+
+pdf(paste0("~/figure_drafts/ptbinMatrix_scMultiCompare_",origin,".pdf"),height = 5,width = 12)
+g1+g2;g3+g4
+dev.off()
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.width=12,fig.height=5}
+origin=my.origins[3]
+
+ph=readRDS(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/pseudotime/ptbinMatrix_scRNAscATAC_N10_",origin,".rds"))
+ph.rna=readRDS(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/pseudotime/ptbinMatrix_N10_",origin,".rds"))
+
+## scRNA
+head(ph$ptime.scrna);table(ph$ptime.scrna$ptbins)
+ptbin.scmulti=ph$ptime.scrna[ph$ptime.scrna$ptbins %in% bins.used[[origin]],];dim(ptbin.scmulti)
+
+head(ph.rna$ptime.scrna);table(ph.rna$ptime.scrna$ptbins)
+ptbin.scrna=ph.rna$ptime.scrna[ph.rna$ptime.scrna$ptbins %in% c(1:10),];dim(ptbin.scrna)
+
+# customized color
+tmp=col.ctype[col.ctype$V1 %in% unique(c(ph$ptime.scatac$annotation_fine,ptbin.scrna$annotation_fine)),];dim(tmp)
+my.cols=tmp$V2;names(my.cols)=tmp$V1
+my.cols["chondrocytes"]="#FFD01F"
+
+g1 = ggplot(data.frame(ptbin.scmulti),aes(x=ptbins,group=annotation_fine)) + theme_classic()
+g1=g1 + geom_bar(aes(fill = annotation_fine),position="fill") +
+  scale_fill_manual(values=my.cols) + ggtitle("scMulti")
+
+g2 = ggplot(data.frame(ptbin.scrna),aes(x=ptbins,group=annotation_fine)) + theme_classic()
+g2=g2 + geom_bar(aes(fill = annotation_fine),position="fill") +
+  scale_fill_manual(values=my.cols) +ggtitle("scRNA")
+
+g1+g2
+
+## scATAC
+table(ph$ptime.scatac$ptbins)
+ptbin.scmulti.atac=ph$ptime.scatac[ph$ptime.scatac$ptbins %in% bins.used[[origin]],];dim(ptbin.scmulti.atac)
+
+table(ph.rna$ptime.scatac$ptbins)
+ptbin.scatac=ph.rna$ptime.scatac[ph.rna$ptime.scrna$ptbins %in% c(1:10),];dim(ptbin.scatac)
+
+g3 = ggplot(data.frame(ptbin.scmulti.atac),aes(x=ptbins,group=annotation_fine)) + theme_classic()
+g3=g3 + geom_bar(aes(fill = annotation_fine),position="fill") +
+  scale_fill_manual(values=my.cols) +ggtitle("scMulti")
+
+g4 = ggplot(data.frame(ptbin.scatac),aes(x=ptbins,group=annotation_fine)) + theme_classic()
+g4=g4 + geom_bar(aes(fill = annotation_fine),position="fill") +
+  scale_fill_manual(values=my.cols) +ggtitle("scATAC")
+
+g3+g4
+
+pdf(paste0("~/figure_drafts/ptbinMatrix_scMultiCompare_",origin,".pdf"),height = 5,width = 12)
+g1+g2;g3+g4
+dev.off()
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+
+```
+
+## plot frequency histogram
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+origin=my.origins[1]
+ph.rna=readRDS(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/pseudotime/ptbinMatrix_N10_",origin,".rds"))
+ph.css=readRDS(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/pseudotime/ptbinMatrix_scRNAscATAC_N10_",origin,".rds"))
+
+ptime.scrna.pre=ph.rna$ptime.scrna[ph.rna$ptime.scrna$ptbins %in% c(1:10),]
+ptime.scrna.post=ph.css$ptime.scrna[ph.css$ptime.scrna$ptbins %in% bins.used[[origin]],]
+ptime.scatac.post=ph.css$ptime.scatac[ph.css$ptime.scatac$ptbins %in% bins.used[[origin]],]
+
+p1 = ggplot(ptime.scrna.pre, aes(x=ptbins)) + 
+  geom_histogram(color="black", fill="lightblue",binwidth = 1) + 
+  theme_classic() + ggtitle(paste0(origin,", scRNA"))
+
+p2 = ggplot(ptime.scrna.post, aes(x=ptbins)) + 
+  geom_histogram(color="black", fill="lightblue",binwidth = 1) + 
+  theme_classic() + ggtitle(paste0(origin,", scRNA (consist)"))
+
+p3 = ggplot(ptime.scatac.post, aes(x=ptbins)) + 
+  geom_histogram(color="black", fill="lightblue",binwidth = 1) + 
+  theme_classic() + ggtitle(paste0(origin,", scATAC (consist)"))
+
+tmp=col.ctype[col.ctype$V1 %in% unique(c(ptime.scrna.post$annotation_fine,ptime.scatac.post$annotation_fine)),];dim(tmp)
+my.cols=tmp$V2;names(my.cols)=tmp$V1
+my.cols["chondrocytes"]="#DC0078"
+
+g1 = ggplot(data.frame(ptime.scrna.pre),aes(x=ptbins,group=annotation_fine)) + theme_classic() +
+  geom_bar(aes(fill = annotation_fine),position="fill") +
+  scale_fill_manual(values=my.cols) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle(paste0(origin,", scRNA"))
+
+g2 = ggplot(data.frame(ptime.scrna.post),aes(x=ptbins,group=annotation_fine)) + theme_classic() +
+  geom_bar(aes(fill = annotation_fine),position="fill") +
+  scale_fill_manual(values=my.cols) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle(paste0(origin,", scRNA (consist)"))
+
+g3 = ggplot(data.frame(ptime.scatac.post),aes(x=ptbins,group=annotation_fine)) + theme_classic() +
+  geom_bar(aes(fill = annotation_fine),position="fill") +
+  scale_fill_manual(values=my.cols) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle(paste0(origin,", scATAC (consist)"))
+
+p1;p2;p3
+g1;g2;g3
+
+pdf(paste0("~/figure_drafts/ptbinMatrix_histFreq_",origin,".pdf"),height = 5,width = 8)
+p1;p2;p3
+g1;g2;g3
+dev.off()
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+origin=my.origins[2]
+ph.rna=readRDS(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/pseudotime/ptbinMatrix_N10_",origin,".rds"))
+ph.css=readRDS(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/pseudotime/ptbinMatrix_scRNAscATAC_N10_",origin,".rds"))
+
+ptime.scrna.pre=ph.rna$ptime.scrna[ph.rna$ptime.scrna$ptbins %in% c(1:10),]
+ptime.scrna.post=ph.css$ptime.scrna[ph.css$ptime.scrna$ptbins %in% bins.used[[origin]],]
+ptime.scatac.post=ph.css$ptime.scatac[ph.css$ptime.scatac$ptbins %in% bins.used[[origin]],]
+
+p1 = ggplot(ptime.scrna.pre, aes(x=ptbins)) + 
+  geom_histogram(color="black", fill="lightblue",binwidth = 1) + 
+  theme_classic() + ggtitle(paste0(origin,", scRNA"))
+
+p2 = ggplot(ptime.scrna.post, aes(x=ptbins)) + 
+  geom_histogram(color="black", fill="lightblue",binwidth = 1) + 
+  theme_classic() + ggtitle(paste0(origin,", scRNA (consist)"))
+
+p3 = ggplot(ptime.scatac.post, aes(x=ptbins)) + 
+  geom_histogram(color="black", fill="lightblue",binwidth = 1) + 
+  theme_classic() + ggtitle(paste0(origin,", scATAC (consist)"))
+
+tmp=col.ctype[col.ctype$V1 %in% unique(c(ptime.scrna.post$annotation_fine,ptime.scatac.post$annotation_fine)),];dim(tmp)
+my.cols=tmp$V2;names(my.cols)=tmp$V1
+my.cols["chondrocytes"]="#00416A"
+
+g1 = ggplot(data.frame(ptime.scrna.pre),aes(x=ptbins,group=annotation_fine)) + theme_classic() +
+  geom_bar(aes(fill = annotation_fine),position="fill") +
+  scale_fill_manual(values=my.cols) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle(paste0(origin,", scRNA"))
+
+g2 = ggplot(data.frame(ptime.scrna.post),aes(x=ptbins,group=annotation_fine)) + theme_classic() +
+  geom_bar(aes(fill = annotation_fine),position="fill") +
+  scale_fill_manual(values=my.cols) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle(paste0(origin,", scRNA (consist)"))
+
+g3 = ggplot(data.frame(ptime.scatac.post),aes(x=ptbins,group=annotation_fine)) + theme_classic() +
+  geom_bar(aes(fill = annotation_fine),position="fill") +
+  scale_fill_manual(values=my.cols) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle(paste0(origin,", scATAC (consist)"))
+
+p1;p2;p3
+g1;g2;g3
+
+pdf(paste0("~/figure_drafts/ptbinMatrix_histFreq_",origin,".pdf"),height = 5,width = 8)
+p1;p2;p3
+g1;g2;g3
+dev.off()
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+origin=my.origins[3]
+ph.rna=readRDS(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/pseudotime/ptbinMatrix_N10_",origin,".rds"))
+ph.css=readRDS(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/pseudotime/ptbinMatrix_scRNAscATAC_N10_",origin,".rds"))
+
+ptime.scrna.pre=ph.rna$ptime.scrna[ph.rna$ptime.scrna$ptbins %in% c(1:10),]
+ptime.scrna.post=ph.css$ptime.scrna[ph.css$ptime.scrna$ptbins %in% bins.used[[origin]],]
+ptime.scatac.post=ph.css$ptime.scatac[ph.css$ptime.scatac$ptbins %in% bins.used[[origin]],]
+
+p1 = ggplot(ptime.scrna.pre, aes(x=ptbins)) + 
+  geom_histogram(color="black", fill="lightblue",binwidth = 1) + 
+  theme_classic() + ggtitle(paste0(origin,", scRNA"))
+
+p2 = ggplot(ptime.scrna.post, aes(x=ptbins)) + 
+  geom_histogram(color="black", fill="lightblue",binwidth = 1) + 
+  theme_classic() + ggtitle(paste0(origin,", scRNA (consist)"))
+
+p3 = ggplot(ptime.scatac.post, aes(x=ptbins)) + 
+  geom_histogram(color="black", fill="lightblue",binwidth = 1) + 
+  theme_classic() + ggtitle(paste0(origin,", scATAC (consist)"))
+
+tmp=col.ctype[col.ctype$V1 %in% unique(c(ptime.scrna.post$annotation_fine,ptime.scatac.post$annotation_fine)),];dim(tmp)
+my.cols=tmp$V2;names(my.cols)=tmp$V1
+my.cols["chondrocytes"]="#FFD01F"
+
+g1 = ggplot(data.frame(ptime.scrna.pre),aes(x=ptbins,group=annotation_fine)) + theme_classic() +
+  geom_bar(aes(fill = annotation_fine),position="fill") +
+  scale_fill_manual(values=my.cols) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle(paste0(origin,", scRNA"))
+
+g2 = ggplot(data.frame(ptime.scrna.post),aes(x=ptbins,group=annotation_fine)) + theme_classic() +
+  geom_bar(aes(fill = annotation_fine),position="fill") +
+  scale_fill_manual(values=my.cols) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle(paste0(origin,", scRNA (consist)"))
+
+g3 = ggplot(data.frame(ptime.scatac.post),aes(x=ptbins,group=annotation_fine)) + theme_classic() +
+  geom_bar(aes(fill = annotation_fine),position="fill") +
+  scale_fill_manual(values=my.cols) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggtitle(paste0(origin,", scATAC (consist)"))
+
+p1;p2;p3
+g1;g2;g3
+
+pdf(paste0("~/figure_drafts/ptbinMatrix_histFreq_",origin,".pdf"),height = 5,width = 8)
+p1;p2;p3
+g1;g2;g3
+dev.off()
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+
+```
+
+## log
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+sessionInfo()
+```

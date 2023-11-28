@@ -1,0 +1,217 @@
+---
+title: "figure5_corHeatmap"
+output: 
+  html_document:
+    df_print: paged
+  html_notebook:
+editor_options:
+  chunk_output_type: inline
+---
+
+for panel E
+
+```{r setup, message=FALSE, warning=FALSE, echo=FALSE}
+# packages
+library(eulerr)
+library(ggplot2); library(patchwork); library(gridExtra)
+library(pheatmap);  
+library(RColorBrewer); library(dplyr)
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+save_pheatmap_pdf <- function(x, filename, width=6, height=4) {
+   stopifnot(!missing(x))
+   stopifnot(!missing(filename))
+   pdf(filename, width=width, height=height)
+   grid::grid.newpage()
+   grid::grid.draw(x$gtable)
+   dev.off()
+}
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+# generated from fig5_p2gVenn.Rmd
+p2g.cor=read.table("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/peak2gene/p2g_lns_correlation.txt",sep = "\t")
+p2g.cor.abs=abs(p2g.cor)
+p2g.cor.abs[is.na(p2g.cor.abs)]=0
+
+venn.mtx=read.table("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/peak2gene/p2g_venn_absCutoff0.5_mtx.txt",sep = "\t")
+venn.mtx$gene=sapply(strsplit(rownames(venn.mtx),","),"[",1)
+venn.mtx$link=sapply(strsplit(rownames(venn.mtx),","),"[",2)
+venn.mtx$trend=sapply(strsplit(rownames(venn.mtx),","),"[",3)
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+# check the origin-specific genes
+# scRNA
+degs=read.table("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/diffAnalysis/chondrocytes_DEGs.txt",sep = "\t")
+degs=degs[degs$avg_logFC>0,];table(degs$origin)
+
+#scATAC
+top.fine=read.table("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/diffAnalysis/chondrocytes_diffMotifs.txt",sep = "\t")
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+# check the common genes
+# scRNA
+degs.l=read.table("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/clustering/fig1_limbFine_degs_pval0.2pct0.01fd0.01.txt") #the stringent one has too few DEGs for overlap:minpct025_logfc025
+degs.l=degs.l[degs.l$cluster=="chondrocytes" & degs.l$avg_log2FC>0 & degs.l$p_val < 0.05,"name"];length(degs.l)
+
+degs.n=read.table("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/clustering/fig1_nasalFine_degs_pval0.2pct0.01fd0.01.txt")
+degs.n=degs.n[degs.n$cluster=="chondrocytes" & degs.n$avg_log2FC>0 & degs.n$p_val < 0.05,"name"];length(degs.n)
+
+degs.s=read.table("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/clustering/fig1_somiteFine_degs_pval0.2pct0.01fd0.01.txt")
+degs.s=degs.s[degs.s$cluster=="chondrocytes" & degs.s$avg_log2FC>0 & degs.s$p_val < 0.05,"name"];length(degs.s)
+
+comn1=degs.l[degs.l %in% degs.n]; #comn1
+comn2=degs.l[degs.l %in% degs.s]; #comn2
+comn=comn1[comn1 %in% comn2]
+comn
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+#########################
+## plot heatmap for only common ones
+comn.ns=degs.n[degs.n %in% degs.s];
+comn.nl=degs.l[degs.l %in% degs.n]; #comn1
+comn.sl=degs.l[degs.l %in% degs.s]; #comn2
+comn=comn.nl[comn.nl %in% comn.sl]
+
+# common genes and links
+# n&s&l
+link.nsl=venn.mtx[venn.mtx$nasal==1 & venn.mtx$somite==1 & venn.mtx$limb==1,]
+cm.nsl=link.nsl[link.nsl$gene %in% comn,];dim(cm.nsl)
+
+# n&s
+link.ns=venn.mtx[venn.mtx$nasal==1 & venn.mtx$somite==1 & venn.mtx$limb==0,]
+cm.ns=link.ns[link.ns$gene %in% comn.ns,];dim(cm.ns)
+
+# n&l
+link.nl=venn.mtx[venn.mtx$nasal==1 & venn.mtx$somite==0 & venn.mtx$limb==1,]
+cm.nl=link.nl[link.nl$gene %in% comn.nl,];dim(cm.nl)
+
+# s&l
+link.sl=venn.mtx[venn.mtx$nasal==0 & venn.mtx$somite==1 & venn.mtx$limb==1,]
+cm.sl=link.sl[link.sl$gene %in% comn.sl,];dim(cm.sl)
+
+p2=pheatmap(mat=p2g.cor.abs[c(rownames(cm.nsl),rownames(cm.ns),rownames(cm.nl),rownames(cm.sl)),],
+            border_color      = NA,
+            show_colnames     = T, show_rownames     = T,
+            cluster_rows=F, cluster_cols = FALSE, treeheight_row = 0,
+            drop_levels       = TRUE,
+            fontsize_row = 5, fontsize_col = 15, silent = TRUE,
+            main              = paste0("peak2gene correlation"))
+plot.new()
+print(p2)
+
+#save_pheatmap_pdf(p2,paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts/fig5/p2g_corHeatmap_commonOnes.pdf"),height = 6,width = 10)
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+#########################
+## plot heatmap for only common ones for scRNA
+comn.ori=comn
+comn=comn[!grepl("^RP",comn)];length(comn) #--> same order as Fig3.G
+
+# keep the ones with at least one positive value
+p2g.cor[is.na(p2g.cor)]=0
+p2g.cor.keep=p2g.cor[grepl(",Pos",rownames(p2g.cor)),];dim(p2g.cor.keep)
+
+# common genes and links
+p2g.cor.keep$gene=sapply(strsplit(rownames(p2g.cor.keep),","),"[",1)
+p2g.cor.filter=p2g.cor.keep[p2g.cor.keep$gene %in% comn,];dim(p2g.cor.filter)
+p2g.cor.filter=p2g.cor.filter[order(rownames(p2g.cor.filter)),]
+p2g.cor.filter$max=apply(p2g.cor.filter[,1:3],1,which.max)
+p2g.cor.filter$max=gsub(1,"N",p2g.cor.filter$max)
+p2g.cor.filter$max=gsub(2,"S",p2g.cor.filter$max)
+p2g.cor.filter$max=gsub(3,"L",p2g.cor.filter$max)
+p2g.cor.filter$max=factor(p2g.cor.filter$max,levels = c("N","S","L"))
+p2g.cor.filter=p2g.cor.filter[order(p2g.cor.filter$gene,p2g.cor.filter$max),]
+
+p3=pheatmap(mat=p2g.cor.filter[,1:3],
+            border_color      = NA,
+            show_colnames     = T, show_rownames     = T,
+            cluster_rows=F, cluster_cols = FALSE, treeheight_row = 0,
+            drop_levels       = TRUE,
+            fontsize_row = 5, fontsize_col = 15, silent = TRUE,
+            main              = paste0("peak2gene correlation"))
+plot.new()
+print(p3)
+
+p4=pheatmap(mat=p2g.cor.filter[,1:3],
+            border_color      = NA,
+            show_colnames     = T, show_rownames     = T,
+            cluster_rows=T, cluster_cols = FALSE, treeheight_row = 0,
+            drop_levels       = TRUE,
+            fontsize_row = 5, fontsize_col = 15, silent = TRUE,
+            main              = paste0("hclust"))
+plot.new()
+print(p4)
+
+#save_pheatmap_pdf(p3,paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts/fig5/p2g_corHeatmap_commonOnesScrna.pdf"),height = 10,width = 6)
+#save_pheatmap_pdf(p4,paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts/fig5/p2g_corHeatmap_commonOnesScrna_hclust.pdf"),height = 10,width = 6)
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+#min(p2g.cor.filter[,1:3]);max(p2g.cor.filter[,1:3])
+my.breaks=seq(0,0.86,0.86/99)
+my.cols=colorRampPalette((brewer.pal(n = 7, name ="OrRd")))(100)
+p4.c1=pheatmap(mat=p2g.cor.filter[,1:3],
+            border_color      = NA,
+            show_colnames     = T, show_rownames     = T,
+            cluster_rows=T, cluster_cols = FALSE, treeheight_row = 20,
+            drop_levels       = TRUE,
+            color = my.cols, breaks = my.breaks,
+            fontsize_row = 5, fontsize_col = 15, silent = TRUE,
+            main              = paste0("hclust,OrRd"))
+plot.new()
+print(p4.c1)
+
+my.cols=colorRampPalette((brewer.pal(n = 7, name ="PuBu")))(100)
+p4.c2=pheatmap(mat=p2g.cor.filter[,1:3],
+               border_color      = NA,
+               show_colnames     = T, show_rownames     = T,
+               cluster_rows=T, cluster_cols = FALSE, treeheight_row = 20,
+               drop_levels       = TRUE,
+               color = my.cols, breaks = my.breaks,
+               fontsize_row = 5, fontsize_col = 15, silent = TRUE,
+               main              = paste0("hclust,PuBu"))
+plot.new()
+print(p4.c2)
+
+my.cols=colorRampPalette((brewer.pal(n = 7, name ="PuRd")))(100)
+p4.c3=pheatmap(mat=p2g.cor.filter[,1:3],
+               border_color      = NA,
+               show_colnames     = T, show_rownames     = T,
+               cluster_rows=T, cluster_cols = FALSE, treeheight_row = 20,
+               drop_levels       = TRUE,
+               color = my.cols, breaks = my.breaks,
+               fontsize_row = 5, fontsize_col = 15, silent = TRUE,
+               main              = paste0("hclust,PuRd"))
+plot.new()
+print(p4.c3)
+
+
+pdf("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts/fig5/p2g_corHeatmap_commonOnesScrna_hclust_tuneColor.pdf",height = 10,width = 6)
+plot.new();print(p4.c1)
+plot.new();print(p4.c2)
+plot.new();print(p4.c3)
+dev.off()
+
+```
+
+# log
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+sessionInfo()
+```
+
+

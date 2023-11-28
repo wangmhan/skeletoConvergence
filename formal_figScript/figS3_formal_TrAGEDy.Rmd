@@ -1,0 +1,576 @@
+---
+title: "scRNA_TrAGEDy"
+output: 
+  html_document:
+    df_print: paged
+  html_notebook:
+editor_options:
+  chunk_output_type: inline
+---
+
+for panel D-F
+
+derived from script: ~/Rscript/scRNA/pseudotime/originAlign/step2_TrAGEDy.Rmd
+a newly developed method: https://github.com/No2Ross/TrAGEDy
+--> optimized cellAlign
+
+```{r setup, message=FALSE, warning=FALSE, echo=FALSE}
+library(Seurat);library(SingleCellExperiment)
+library(slingshot)
+library(RColorBrewer);library(ggplot2)
+library(dplyr);library(stats)
+library(stringr);library(rgl)
+source("~/Rscript/scRNA/pseudotime/originAlign/TrAGEDy_functions.R")
+
+set.seed(1234)
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+save_pheatmap_pdf <- function(x, filename, width=6, height=4) {
+   stopifnot(!missing(x))
+   stopifnot(!missing(filename))
+   pdf(filename, width=width, height=height)
+   grid::grid.newpage()
+   grid::grid.draw(x$gtable)
+   dev.off()
+}
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+pt.test=function(origin.wt="somite",origin.ko="limb",
+                 nbin.used=40, name.extra="", 
+                 assay.used="RNA", alist.name="noCorrected",
+                 feature.used=go.cartilage$geneid, 
+                 vars.to.regress = "",rna.scale=FALSE,
+                 glist.name="GOunion",
+                 dist.method="spearman",
+                 cut_type.used="minimum"){
+  # read in data
+  WT_sce = readRDS(paste0("~/scRNA/pseudotime/originAlign/scrna_preprocessPtimeForAlign_",name.extra,origin.wt,".rds"))
+  KO_sce = readRDS(paste0("~/scRNA/pseudotime/originAlign/scrna_preprocessPtimeForAlign_",name.extra,origin.ko,".rds"))
+  print("read in scRNA-seq data")
+  
+  ## decides how many interpolated points will be created across the trajectory
+  pseudo_end <- min(c(max(KO_sce$pseudotime, WT_sce$pseudotime)))
+  window <- pseudo_end / 45
+  
+  WT_cell_pseudotime <- matrix(WT_sce$pseudotime, dimnames =list(rownames(WT_sce@meta.data)))
+  KO_cell_pseudotime <- matrix(KO_sce$pseudotime, dimnames =list(rownames(KO_sce@meta.data)))
+  WT_ID <- data.frame(WT_sce$annotation_fine, row.names =rownames(WT_sce@meta.data))
+  KO_ID <- data.frame(KO_sce$annotation_fine, row.names =rownames(KO_sce@meta.data))
+  print("break point 1!")
+  
+  #Create Interpolated points across pseudotime 
+  WT_tree <- nodePseudotime(WT_cell_pseudotime,WT_ID, nbin.used, "WT")
+  KO_tree <- nodePseudotime(KO_cell_pseudotime,KO_ID, nbin.used, "KO")
+  
+  KO_cell_pseudo <- data.frame("ID" = rownames(KO_sce@meta.data), "pseudo" = KO_sce$pseudotime)
+  KO_node_pseudo <- data.frame("ID" = row.names(KO_tree$pseudotime), "pseudo" = KO_tree$pseudotime$pseudotime)
+  
+  WT_cell_pseudo <- data.frame("ID" = rownames(WT_sce@meta.data), "pseudo" = WT_sce$pseudotime)
+  WT_node_pseudo <- data.frame("ID" = row.names(WT_tree$pseudotime), "pseudo" = WT_tree$pseudotime$pseudotime)
+  
+  KO_node_pseudotime <- matrix(KO_tree$pseudotime$pseudotime , dimnames = list(row.names(KO_tree$pseudotime)), )
+  WT_node_pseudotime <- matrix(WT_tree$pseudotime$pseudotime , dimnames = list(row.names(WT_tree$pseudotime)), )
+  print("break point 2!")
+  
+  #Get gene expression values for the interpolated points
+  # scale:t(scale(t(KO_sce@assays$RNA@data)))
+  # some errors if run directly...
+  if(vars.to.regress == "" & !(rna.scale)){
+    KO_node_exp_mtx.ori <- nodeExpressionEstimate(KO_sce@assays[[assay.used]]@data, KO_node_pseudotime, KO_cell_pseudotime, window, adjust.window = T)
+    WT_node_exp_mtx.ori <- nodeExpressionEstimate(WT_sce@assays[[assay.used]]@data, WT_node_pseudotime, WT_cell_pseudotime, window, adjust.window = T)
+  }else if(rna.scale){
+    features=feature.used[(feature.used %in% rownames(KO_sce@assays[[assay.used]]@data)) & (feature.used %in% rownames(WT_sce@assays[[assay.used]]@data))]
+    KO_sce=ScaleData(KO_sce,assay = "RNA",features = features)
+    WT_sce=ScaleData(WT_sce,assay = "RNA",features = features)
+    KO_node_exp_mtx.ori <- nodeExpressionEstimate(KO_sce@assays[[assay.used]]@scale.data, KO_node_pseudotime, KO_cell_pseudotime, window, adjust.window = T)
+    WT_node_exp_mtx.ori <- nodeExpressionEstimate(WT_sce@assays[[assay.used]]@scale.data, WT_node_pseudotime, WT_cell_pseudotime, window, adjust.window = T)
+  }else{
+    features=feature.used[(feature.used %in% rownames(KO_sce@assays[[assay.used]]@data)) & (feature.used %in% rownames(WT_sce@assays[[assay.used]]@data))]
+    KO_sce=ScaleData(KO_sce,assay = "RNA",features = features,vars.to.regress = vars.to.regress)
+    WT_sce=ScaleData(WT_sce,assay = "RNA",features = features,vars.to.regress = vars.to.regress)
+    KO_node_exp_mtx.ori <- nodeExpressionEstimate(KO_sce@assays[[assay.used]]@scale.data, KO_node_pseudotime, KO_cell_pseudotime, window, adjust.window = T)
+    WT_node_exp_mtx.ori <- nodeExpressionEstimate(WT_sce@assays[[assay.used]]@scale.data, WT_node_pseudotime, WT_cell_pseudotime, window, adjust.window = T)
+  }
+  
+  print("get interpolated values!")
+  
+  features <- feature.used
+  #features <- go.chick$ensembl_gene_id;length(features)
+  features=features[features %in% rownames(KO_node_exp_mtx.ori)]
+  features=features[features %in% rownames(WT_node_exp_mtx.ori)];length(features)
+  #features=features[features %in% c(gencls.s$expressed,gencls.l$expressed)];length(features)
+  
+  gene.out=c(rownames(KO_node_exp_mtx.ori)[is.nan(rowSums(KO_node_exp_mtx.ori))],
+             rownames(WT_node_exp_mtx.ori)[is.nan(rowSums(WT_node_exp_mtx.ori))]);length(gene.out)
+  features=features[!(features %in% gene.out)];length(features)
+  
+  KO_node_exp_mtx  <- KO_node_exp_mtx.ori[features, ]
+  WT_node_exp_mtx <- WT_node_exp_mtx.ori[features, ]
+  
+  #euclidean, pearson, spearman
+  penalty_mtx <- dis_mtx_calculator(as.matrix(WT_node_exp_mtx), as.matrix(KO_node_exp_mtx), dist.method)
+  print("calculate dissimilarity!")
+  
+  #Find optimal path through the dissimilarity matrix then cut and matches that have high dissimilarity
+  path_uncut <- pathfind(penalty_mtx, cut_type = cut_type.used, method = "mean")
+  
+  #cut high dissimilarity matches that occur somewhere between the start and end points
+  path_cut <- cut_deviate(path_uncut, penalty_mtx, method = "mean")
+  print("get optimal path!")
+  
+  #visualise how the alignments look through various means
+  penalty_mtx.plot=penalty_mtx
+  colnames(penalty_mtx.plot)=gsub("WT",origin.wt,colnames(penalty_mtx.plot))
+  rownames(penalty_mtx.plot)=gsub("KO",origin.ko,rownames(penalty_mtx.plot))
+  
+  path_cut.plot=path_cut
+  path_cut.plot$X=gsub("WT",origin.wt,path_cut.plot$X)
+  path_cut.plot$Y=gsub("KO",origin.ko,path_cut.plot$Y)
+  
+  PlotAlignment(path_cut.plot, penalty_mtx.plot)
+  PlotAlignment.mod(path_cut.plot, penalty_mtx.plot)
+  
+  #with visualisation of the pseudotime of the interpolated points and their matches
+  plot_df=PlotOutput(WT_tree, KO_tree, path_cut)
+  plot_df$condition=gsub("WT",origin.wt,plot_df$condition)
+  plot_df$condition=gsub("KO",origin.ko,plot_df$condition)
+  plot_df$condition=factor(plot_df$condition,levels = c(origin.ko,origin.wt))
+  
+  #ID is the most common cell type for the nodes: func::commonID()
+  p1=ggplot(data = plot_df, aes(pseudotime, condition)) +
+    geom_point(aes(col = ID), size=2) + 
+    geom_line(aes(group = group)) + theme_classic() +
+    scale_y_discrete(expand = c(0,0.1))
+  print("plotting!")
+  
+  # save plot
+  pdf(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/pseudotime/TrAGEDy_aligned_",alist.name,"_",glist.name,"_N",nbin.used,"_",origin.wt,"VS",origin.ko,".pdf"), width=12, height=5)
+  print(p1)
+  dev.off()
+  
+  plot.new()
+  save_pheatmap_pdf(PlotAlignment.mod(path_cut.plot, penalty_mtx.plot), paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/pseudotime/TrAGEDy_heatmap_",alist.name,"_",glist.name,"_N",nbin.used,"_",origin.wt,"VS",origin.ko,".pdf"), width=6, height=5)
+  
+  print("save figures!")
+  
+  res=list()
+  res[["path_cut"]]=path_cut.plot
+  res[["penalty_mtx"]]=penalty_mtx.plot
+  res[["plot_df"]]=plot_df
+  return(res)
+}
+
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+#visualise how the alignments look through various means
+PlotAlignment.mod <- function(alignment, score_mtx){
+  cut_alignment <- alignment[alignment$Status == "match",]
+  
+  score_mtx <- t(score_mtx)
+  score_mtx[as.matrix(cut_alignment[,1:2])] <- NA
+  
+  myColor <- colorRampPalette(rev(brewer.pal(n = 7, name = "RdYlBu")))(200)
+  
+  #breaks_plot <- seq(min(score_mtx, na.rm=T), max(score_mtx, na.rm=T), ((max(score_mtx, na.rm=T)-min(score_mtx, na.rm=T))/200))
+  breaks_plot <- seq(0.25, 1.75, (1.75-0.25)/200)
+  
+  return(pheatmap::pheatmap(as.matrix(score_mtx), cluster_rows = F, cluster_cols = F, scale="none", border_color = NA, margins = c(8,8),  breaks = breaks_plot, color = myColor, cexCol = 0.2,na_col = "black"))
+}
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+#gene name info
+gene.info=read.table("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/ensembl97_geneinfo.txt",
+                     sep="\t",header = TRUE,row.names = 1,stringsAsFactors = FALSE)
+gene.info[gene.info$genename=="","genename"]=rownames(gene.info[gene.info$genename=="",])
+gene.info$genename=toupper(gene.info$genename)
+
+# data path
+my.origins=c("limb","somite","nasal")
+my.files=paste0("~/scRNA/clustering/subset_",my.origins,".rds")
+my.pfiles=paste0("~/scRNA/pseudotime/ptime_",my.origins,"_slingshot.rds")
+my.mfiles=paste0("~/scRNA/clustering/meta_",my.origins,".rds")
+cid=c("curve1","curve2","curve4")
+
+```
+
+## read in gene set
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+tfs=read.table("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/Gallus_gallus_TF_AnimalTFDB3_edited.txt",sep="\t",header = TRUE,stringsAsFactors = FALSE)
+mid2name=read.table("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/motif_id2name.txt",sep = "\t",header = T,stringsAsFactors = F)
+rownames(mid2name)=mid2name$motif_id
+
+##################
+## generate a set of TF: based on Gallus_gallus_TF_AnimalTFDB3_edited.txt & motif_id2name.txt
+tf.set1=tfs$Ensembl
+
+tmp=mid2name$motif_name
+tmp=unique(tmp[tmp!="notExist"]);length(tmp)
+tmp.extra=NULL
+for(i in 1:length(tmp)){
+  if(grepl("\\|",tmp[i])){
+    tmp.mf=gsub("\\|",",",tmp[i])
+    tmp.mf=unlist(strsplit(tmp.mf,","))
+    tmp.extra=c(tmp.extra,tmp.mf)
+  }
+}
+tmp=toupper(c(tmp,tmp.extra))
+tmp=unique(tmp[!grepl("\\|",tmp)]);length(tmp)
+tf.set2=rownames(gene.info[gene.info$genename %in% tmp,]);length(tf.set2)
+
+tf.set=c(tf.set1,tf.set2)
+tf.set=unique(tf.set);length(tf.set)
+length(tf.set1);length(tf.set1[tf.set1 %in% rownames(gene.info)])
+#tf.set1 is the reason where some genes are missed
+length(tf.set2);length(tf.set2[tf.set2 %in% rownames(gene.info)])
+length(tf.set[tf.set %in% rownames(gene.info)])
+
+#convert to ensembl id
+tf.set.id=tf.set[tf.set %in% rownames(gene.info)];length(tf.set.id)
+tf.set.name=gene.info[tf.set.id,"genename"];length(tf.set.name)
+print(paste0("the number of genes annotated as TFs: ",length(tf.set.id)))
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+# expression(sum>0, expressed in >1% cells)
+gencls.n=readRDS(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/pseudotime/temporal_scrnaClusterInfo_","nasal",".rds"))
+gencls.s=readRDS(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/pseudotime/temporal_scrnaClusterInfo_","somite",".rds"))
+gencls.l=readRDS(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/pseudotime/temporal_scrnaClusterInfo_","limb",".rds"))
+
+#expressed temporally changed genes
+tempo.exp=c(names(gencls.n$kmeans$cluster),names(gencls.s$kmeans$cluster),names(gencls.l$kmeans$cluster))
+tempo.exp=table(tempo.exp)
+tempo.exp=names(tempo.exp[tempo.exp>=1])
+tempo.exp=rownames(gene.info[gene.info$genename %in% tempo.exp,]);length(tempo.exp)
+
+# expressed
+expressed=c(gencls.n$expressed,gencls.s$expressed,gencls.l$expressed)
+expressed=table(expressed)
+expressed=names(expressed[expressed==3]);length(expressed)
+
+# HVGs
+hvgs.scran=read.table(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/integration/preprocessed_scranHVGs.txt"),
+                      sep="\t",row.names=1,header=TRUE)
+dim(hvgs.scran[hvgs.scran$Freq>=7,])
+hvgscran=as.character(hvgs.scran[hvgs.scran$Freq>=7,"hvgs"])
+hvgscran=hvgscran[hvgscran %in% expressed];length(hvgscran)
+
+# TFs
+tf=tf.set.id
+express.tf=expressed[(expressed %in% as.character(tf.set.id))];length(express.tf)
+tmp=gene.info[rownames(gene.info) %in% express.tf,]
+write.table(tmp,"/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/pseudotime/TrAGEDy_geneSet-expressTF.txt",quote = F)
+
+#from fig4_metaGenes.Rmd
+markers.imm=c("SOX9","WWP2","BCL2","FGFRL1","COMP",
+              "ACAN","RSPO2","MGP","COL11A1","COL9A1",
+              "COL9A2","COL9A3","MATN1","MATN4",
+              "MATN3","SOX6","SOX5","FOXO1",
+              "BARX2","COL2A1")
+length(gene.info[gene.info$genename %in% markers.imm,"genename"])
+markers.imm[(!markers.imm %in% gene.info$genename)]
+markersid.imm=rownames(gene.info[gene.info$genename %in% markers.imm,])
+markers.red=read.table("~/scRNA/pseudotime/bmc_fig6_redModule.txt",
+                       sep="\t",header = T);dim(markers.red)
+
+# GO terms
+go.cartilage=read.table("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/pseudotime/GOlist_cartliageDevelopment_chickenMouseUnion.txt",sep = "\t")
+go.chick=read.table("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/pseudotime/GOlist_cartliageDevelopment_chicken.txt",sep = "\t")
+#go.cartilage[!(go.cartilage$geneid %in% go.chick$ensembl_gene_id),]
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.width=6}
+library(eulerr)
+
+combn=list(HVGs=hvgscran,
+                 GO=go.cartilage$geneid,
+                 IMM=markersid.imm,
+           TF=express.tf)
+plot(euler(combn), quantities = TRUE)
+
+pdf("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/pseudotime/TrAGEDy_geneListVenn.pdf",width = 6,height = 5)
+plot(euler(combn), quantities = TRUE)
+dev.off()
+```
+
+## HVGs
+
+scale is the big matter, than cell cycle.
+need to run the below first, otherwise the function "pt.test" is not working...
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+origin.wt="somite";origin.ko="limb"
+nbin.used=40; name.extra=""
+assay.used="RNA"; alist.name="regressCC"
+feature.used=hvgscran
+vars.to.regress = c("CC.Difference");rna.scale=FALSE
+glist.name="HVGs"
+cut_type.used="minimum";dist.method="spearman"
+
+
+# read in data
+WT_sce = readRDS(paste0("~/scRNA/pseudotime/originAlign/scrna_preprocessPtimeForAlign_",name.extra,origin.wt,".rds"))
+KO_sce = readRDS(paste0("~/scRNA/pseudotime/originAlign/scrna_preprocessPtimeForAlign_",name.extra,origin.ko,".rds"))
+print("read in scRNA-seq data")
+
+## decides how many interpolated points will be created across the trajectory
+pseudo_end <- min(c(max(KO_sce$pseudotime, WT_sce$pseudotime)))
+window <- pseudo_end / 45
+
+WT_cell_pseudotime <- matrix(WT_sce$pseudotime, dimnames =list(rownames(WT_sce@meta.data)))
+KO_cell_pseudotime <- matrix(KO_sce$pseudotime, dimnames =list(rownames(KO_sce@meta.data)))
+WT_ID <- data.frame(WT_sce$annotation_fine, row.names =rownames(WT_sce@meta.data))
+KO_ID <- data.frame(KO_sce$annotation_fine, row.names =rownames(KO_sce@meta.data))
+print("break point 1!")
+
+#Create Interpolated points across pseudotime 
+WT_tree <- nodePseudotime(WT_cell_pseudotime,WT_ID, nbin.used, "WT")
+KO_tree <- nodePseudotime(KO_cell_pseudotime,KO_ID, nbin.used, "KO")
+
+KO_cell_pseudo <- data.frame("ID" = rownames(KO_sce@meta.data), "pseudo" = KO_sce$pseudotime)
+KO_node_pseudo <- data.frame("ID" = row.names(KO_tree$pseudotime), "pseudo" = KO_tree$pseudotime$pseudotime)
+
+WT_cell_pseudo <- data.frame("ID" = rownames(WT_sce@meta.data), "pseudo" = WT_sce$pseudotime)
+WT_node_pseudo <- data.frame("ID" = row.names(WT_tree$pseudotime), "pseudo" = WT_tree$pseudotime$pseudotime)
+
+KO_node_pseudotime <- matrix(KO_tree$pseudotime$pseudotime , dimnames = list(row.names(KO_tree$pseudotime)), )
+WT_node_pseudotime <- matrix(WT_tree$pseudotime$pseudotime , dimnames = list(row.names(WT_tree$pseudotime)), )
+print("break point 2!")
+
+#Get gene expression values for the interpolated points
+# scale:t(scale(t(KO_sce@assays$RNA@data)))
+# some errors if run directly...
+if(vars.to.regress == "" & !(rna.scale)){
+  KO_node_exp_mtx.ori <- nodeExpressionEstimate(KO_sce@assays[[assay.used]]@data, KO_node_pseudotime, KO_cell_pseudotime, window, adjust.window = T)
+  WT_node_exp_mtx.ori <- nodeExpressionEstimate(WT_sce@assays[[assay.used]]@data, WT_node_pseudotime, WT_cell_pseudotime, window, adjust.window = T)
+}else if(rna.scale){
+  features=feature.used[(feature.used %in% rownames(KO_sce@assays[[assay.used]]@data)) & (feature.used %in% rownames(WT_sce@assays[[assay.used]]@data))]
+  KO_sce=ScaleData(KO_sce,assay = "RNA",features = features)
+  WT_sce=ScaleData(WT_sce,assay = "RNA",features = features)
+  KO_node_exp_mtx.ori <- nodeExpressionEstimate(KO_sce@assays[[assay.used]]@scale.data, KO_node_pseudotime, KO_cell_pseudotime, window, adjust.window = T)
+  WT_node_exp_mtx.ori <- nodeExpressionEstimate(WT_sce@assays[[assay.used]]@scale.data, WT_node_pseudotime, WT_cell_pseudotime, window, adjust.window = T)
+}else{
+  features=feature.used[(feature.used %in% rownames(KO_sce@assays[[assay.used]]@data)) & (feature.used %in% rownames(WT_sce@assays[[assay.used]]@data))]
+  KO_sce=ScaleData(KO_sce,assay = "RNA",features = features,vars.to.regress = vars.to.regress)
+  WT_sce=ScaleData(WT_sce,assay = "RNA",features = features,vars.to.regress = vars.to.regress)
+  KO_node_exp_mtx.ori <- nodeExpressionEstimate(KO_sce@assays[[assay.used]]@scale.data, KO_node_pseudotime, KO_cell_pseudotime, window, adjust.window = T)
+  WT_node_exp_mtx.ori <- nodeExpressionEstimate(WT_sce@assays[[assay.used]]@scale.data, WT_node_pseudotime, WT_cell_pseudotime, window, adjust.window = T)
+}
+
+print("get interpolated values!")
+
+features <- feature.used
+#features <- go.chick$ensembl_gene_id;length(features)
+features=features[features %in% rownames(KO_node_exp_mtx.ori)]
+features=features[features %in% rownames(WT_node_exp_mtx.ori)];length(features)
+#features=features[features %in% c(gencls.s$expressed,gencls.l$expressed)];length(features)
+
+gene.out=c(rownames(KO_node_exp_mtx.ori)[is.nan(rowSums(KO_node_exp_mtx.ori))],
+           rownames(WT_node_exp_mtx.ori)[is.nan(rowSums(WT_node_exp_mtx.ori))]);length(gene.out)
+features=features[!(features %in% gene.out)];length(features)
+
+KO_node_exp_mtx  <- KO_node_exp_mtx.ori[features, ]
+WT_node_exp_mtx <- WT_node_exp_mtx.ori[features, ]
+
+#euclidean, pearson, spearman
+penalty_mtx <- dis_mtx_calculator(as.matrix(WT_node_exp_mtx), as.matrix(KO_node_exp_mtx), dist.method)
+print("calculate dissimilarity!")
+
+#Find optimal path through the dissimilarity matrix then cut and matches that have high dissimilarity
+path_uncut <- pathfind(penalty_mtx, cut_type = cut_type.used, method = "mean")
+
+#cut high dissimilarity matches that occur somewhere between the start and end points
+path_cut <- cut_deviate(path_uncut, penalty_mtx, method = "mean")
+print("get optimal path!")
+
+#visualise how the alignments look through various means
+penalty_mtx.plot=penalty_mtx
+colnames(penalty_mtx.plot)=gsub("WT",origin.wt,colnames(penalty_mtx.plot))
+rownames(penalty_mtx.plot)=gsub("KO",origin.ko,rownames(penalty_mtx.plot))
+
+path_cut.plot=path_cut
+path_cut.plot$X=gsub("WT",origin.wt,path_cut.plot$X)
+path_cut.plot$Y=gsub("KO",origin.ko,path_cut.plot$Y)
+
+PlotAlignment(path_cut.plot, penalty_mtx.plot)
+PlotAlignment.mod(path_cut.plot, penalty_mtx.plot)
+
+#with visualisation of the pseudotime of the interpolated points and their matches
+plot_df=PlotOutput(WT_tree, KO_tree, path_cut)
+plot_df$condition=gsub("WT",origin.wt,plot_df$condition)
+plot_df$condition=gsub("KO",origin.ko,plot_df$condition)
+plot_df$condition=factor(plot_df$condition,levels = c(origin.ko,origin.wt))
+
+#ID is the most common cell type for the nodes: func::commonID()
+p1=ggplot(data = plot_df, aes(pseudotime, condition)) +
+  geom_point(aes(col = ID), size=2) + 
+  geom_line(aes(group = group)) + theme_classic() +
+  scale_y_discrete(expand = c(0,0.1))
+print("plotting!")
+
+print(p1)
+plot.new()
+```
+
+## GO
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+res=pt.test(origin.wt="nasal",origin.ko="limb",
+                 nbin.used=40, name.extra="",
+                 assay.used="RNA", alist.name="regressCC",
+                 feature.used=go.cartilage$geneid, 
+                 vars.to.regress = c("CC.Difference"),
+                 glist.name="GOcartilage",
+                 cut_type.used="minimum")
+
+plot.new()
+PlotAlignment(res$path_cut, res$penalty_mtx)
+PlotAlignment.mod(res$path_cut, res$penalty_mtx)
+dev.off()
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+res=pt.test(origin.wt="nasal",origin.ko="somite",
+                 nbin.used=40, name.extra="",
+                 assay.used="RNA", alist.name="regressCC",
+                 feature.used=go.cartilage$geneid, 
+                 vars.to.regress = c("CC.Difference"),
+                 glist.name="GOcartilage",
+                 cut_type.used="minimum")
+
+plot.new()
+PlotAlignment(res$path_cut, res$penalty_mtx)
+PlotAlignment.mod(res$path_cut, res$penalty_mtx)
+dev.off()
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+res=pt.test(origin.wt="somite",origin.ko="limb",
+                 nbin.used=40, name.extra="",
+                 assay.used="RNA", alist.name="regressCC",
+                 feature.used=go.cartilage$geneid, 
+                 vars.to.regress = c("CC.Difference"),
+                 glist.name="GOcartilage",
+                 cut_type.used="minimum")
+
+plot.new()
+PlotAlignment(res$path_cut, res$penalty_mtx)
+PlotAlignment.mod(res$path_cut, res$penalty_mtx)
+dev.off()
+```
+
+## IMM
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+res=pt.test(origin.wt="nasal",origin.ko="limb",
+                 nbin.used=40, name.extra="",
+                 assay.used="RNA", alist.name="regressCC",
+                 feature.used=markersid.imm, 
+                 vars.to.regress = c("CC.Difference"),
+                 glist.name="IMMmodule",
+                 cut_type.used="minimum")
+
+plot.new()
+PlotAlignment(res$path_cut, res$penalty_mtx)
+PlotAlignment.mod(res$path_cut, res$penalty_mtx)
+dev.off()
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+res=pt.test(origin.wt="nasal",origin.ko="somite",
+                 nbin.used=40, name.extra="",
+                 assay.used="RNA", alist.name="regressCC",
+                 feature.used=markersid.imm, 
+                 vars.to.regress = c("CC.Difference"),
+                 glist.name="IMMmodule",
+                 cut_type.used="minimum")
+
+plot.new()
+PlotAlignment(res$path_cut, res$penalty_mtx)
+PlotAlignment.mod(res$path_cut, res$penalty_mtx)
+dev.off()
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+res=pt.test(origin.wt="somite",origin.ko="limb",
+                 nbin.used=40, name.extra="",
+                 assay.used="RNA", alist.name="regressCC",
+                 feature.used=markersid.imm, 
+                 vars.to.regress = c("CC.Difference"),
+                 glist.name="IMMmodule",
+                 cut_type.used="minimum")
+
+plot.new()
+PlotAlignment(res$path_cut, res$penalty_mtx)
+PlotAlignment.mod(res$path_cut, res$penalty_mtx)
+dev.off()
+```
+
+## overlap expressed TFs & HVGs
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+hvgs.tf=hvgscran[hvgscran %in% express.tf];length(hvgs.tf)
+tmp=gene.info[rownames(gene.info) %in% hvgs.tf,]
+write.table(tmp,"/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/pseudotime/TrAGEDy_geneSet-variableTF.txt",quote = F)
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+res=pt.test(origin.wt="nasal",origin.ko="limb",
+                 nbin.used=40, name.extra="",
+                 assay.used="RNA", alist.name="regressCC",
+                 feature.used=hvgs.tf, 
+                 vars.to.regress = c("CC.Difference"),
+                 glist.name="variableTF",
+                 cut_type.used="minimum")
+
+plot.new()
+PlotAlignment(res$path_cut, res$penalty_mtx)
+PlotAlignment.mod(res$path_cut, res$penalty_mtx)
+dev.off()
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+res=pt.test(origin.wt="nasal",origin.ko="somite",
+                 nbin.used=40, name.extra="",
+                 assay.used="RNA", alist.name="regressCC",
+                 feature.used=hvgs.tf, 
+                 vars.to.regress = c("CC.Difference"),
+                 glist.name="variableTF",
+                 cut_type.used="minimum")
+
+plot.new()
+PlotAlignment(res$path_cut, res$penalty_mtx)
+PlotAlignment.mod(res$path_cut, res$penalty_mtx)
+dev.off()
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+res=pt.test(origin.wt="somite",origin.ko="limb",
+                 nbin.used=40, name.extra="",
+                 assay.used="RNA", alist.name="regressCC",
+                 feature.used=hvgs.tf, 
+                 vars.to.regress = c("CC.Difference"),
+                 glist.name="variableTF",
+                 cut_type.used="minimum")
+
+plot.new()
+PlotAlignment(res$path_cut, res$penalty_mtx)
+PlotAlignment.mod(res$path_cut, res$penalty_mtx)
+dev.off()
+```
+
+## log
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+sessionInfo()
+```

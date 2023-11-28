@@ -1,0 +1,140 @@
+---
+title: "temporally changed genes"
+output: 
+  html_document:
+    df_print: paged
+  html_notebook:
+editor_options:
+  chunk_output_type: inline
+---
+
+use the result from previous analysis, generate figures.
+
+```{r setup, message=FALSE, warning=FALSE, echo=FALSE}
+# packages
+library(RColorBrewer);library(reshape2)
+library(pheatmap);library(dplyr)
+library(ggplot2)
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+save_pheatmap_pdf <- function(x, filename, width=6, height=4) {
+   stopifnot(!missing(x))
+   stopifnot(!missing(filename))
+   pdf(filename, width=width, height=height)
+   grid::grid.newpage()
+   grid::grid.draw(x$gtable)
+   dev.off()
+}
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+#gene name info
+gene.info=read.table("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/ensembl97_geneinfo.txt",
+                     sep="\t",header = TRUE,row.names = 1,stringsAsFactors = FALSE)
+gene.info[gene.info$genename=="","genename"]=rownames(gene.info[gene.info$genename=="",])
+gene.info$genename=toupper(gene.info$genename)
+gene.info=gene.info[!duplicated(gene.info$genename),]
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+# 10 bins or 40 bins
+extra=""
+
+bins.used=list()
+bins.used[["nasal"]]=2:11
+bins.used[["somite"]]=5:14
+bins.used[["limb"]]=3:12
+
+```
+
+## origin-specific TFs
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+tfs=c("TBX2","ALX4","SIX2","ALX1","ID2","PRRX2","ID1","DLX1",
+      "TWIST1","TCF15","MEOX1","NKX3-2","PAX1","TBX22","HOXB5","SALL4",
+      "BCL11A","TCF7L2","HOXA9","MECOM","HAND2","SHOX2","TBX5","PRRX1")
+
+length(tfs)
+#tfs[!(tfs %in% rownames(my.average))]
+
+my.origins=c("nasal","somite","limb")
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+#current ptbins
+break3=seq(0, 2.5, by=0.05)
+col3=colorRampPalette(c("white","grey80","black"))(length(break3))
+for(i in 1:length(my.origins)){
+  origin=my.origins[i]
+  ph=readRDS(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/pseudotime/ptbinMatrix_scRNAscATAC_N10_",origin,".rds"))
+  my.average=ph$scrna[,bins.used[[origin]]]
+  my.average=my.average[rownames(my.average) %in% rownames(gene.info),]
+  rownames(my.average)=gene.info[rownames(my.average),"genename"]
+  dynamics.rna=my.average[tfs,]
+  dynamics.rna=log2(dynamics.rna+1)
+  #dynamics.rna=t(scale(t(dynamics.rna)))
+  #dynamics.rna[is.nan(dynamics.rna)]=0
+  #quantile(dynamics.rna);
+  pt1.clust=pheatmap(
+    mat               = dynamics.rna,
+    border_color      = NA,
+    show_colnames     = TRUE, show_rownames     = TRUE,
+    cluster_rows=FALSE, cluster_cols = FALSE, 
+    #cluster_rows=TRUE, cluster_cols = FALSE, treeheight_row = 0,
+    drop_levels       = TRUE,
+    fontsize_row = 8, fontsize_col = 6, silent = TRUE,
+    main              = paste0("tfs"),
+    color = col3,
+    breaks = break3
+  )
+  plot.new(); print(pt1.clust)
+  #save_pheatmap_pdf(pt1.clust,paste0("~/figure_drafts/fig3_ptimeClusterHeatmap_scRNA_","consist_",origin,"_tfsLog.pdf"), height = 6,width = 5)
+  
+}
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.height=6}
+
+my.origins=c("nasal","somite","limb")
+
+break3=seq(0, 2.5, by=0.01)
+col3=colorRampPalette(c("white","grey80","black"))(length(break3))
+for(i in 1:length(my.origins)){
+  origin=my.origins[i]
+  my.average=read.table(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/pseudotime/temporal_scrnaPtbinMatrix_",origin,".txt"),sep = "\t")
+  dynamics.rna=my.average[tfs,]
+  dynamics.rna=log2(dynamics.rna+1)
+  #dynamics.rna=t(scale(t(dynamics.rna)))
+  #dynamics.rna[is.nan(dynamics.rna)]=0
+  print(quantile(dynamics.rna["PRRX1",],0.9))
+  
+  pt1.clust=pheatmap(
+    mat               = dynamics.rna,
+    border_color      = NA,
+    show_colnames     = TRUE, show_rownames     = TRUE,
+    cluster_rows=FALSE, cluster_cols = FALSE, 
+    #cluster_rows=TRUE, cluster_cols = FALSE, treeheight_row = 0,
+    drop_levels       = TRUE,
+    fontsize_row = 8, fontsize_col = 6, silent = TRUE,
+    main              = paste0("tfs"),
+    color = col3,
+    breaks = break3
+  )
+  plot.new(); print(pt1.clust)
+  #save_pheatmap_pdf(pt1.clust,paste0("~/figure_drafts/fig3_ptimeClusterHeatmap_scRNA_","",origin,"_tfsLog.pdf"), height = 6,width = 5)
+}
+
+```
+
+## log
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+sessionInfo()
+```
+

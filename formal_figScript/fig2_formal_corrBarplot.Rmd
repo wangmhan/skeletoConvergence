@@ -1,0 +1,490 @@
+---
+title: "scATAC_convergence_correlation"
+output: 
+  html_document:
+    df_print: paged
+  html_notebook:
+editor_options:
+  chunk_output_type: inline
+---
+
+for panel J
+
+```{r setup, message=FALSE, warning=FALSE, echo=FALSE}
+library(Signac);library(Seurat)
+library(pheatmap)
+library("viridis");library(ggplot2)
+library(dplyr); library(scales)
+
+source("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/colors/limbcolors.R")
+source("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/colors/nasalcolors.R")
+source("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/colors/somitecolors.R")
+my.cols = c(limb.colors(3),nasal.colors(3), somite.colors(3))
+
+my.origins=c("limb","nasal","somite")
+my.samplenames = c("L21", "L24", "N15", "N18", "S12", "S15")
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+##function
+pairwise.cor=function(data=my.average,method="pearson"){
+  avg.dist=matrix(ncol = ncol(data), nrow = ncol(data))
+  for(i in 1:ncol(data)){
+    x=data[,i]
+    for(j in 1:ncol(data)){
+      y=data[,j]
+      tmp=cor.test(x,y,method=method)
+      avg.dist[i,j]=tmp$estimate
+    }
+  }
+  colnames(avg.dist)=colnames(data);rownames(avg.dist)=colnames(data)
+  return(avg.dist)
+}
+
+pheatmap.anno=function(data=my.correlation,order=ctype.order,color.origin="",color.ctype=""){
+  #get annotation
+  #annorow=data.frame(
+  #  origin=sapply(strsplit(colnames(data),"_"), `[`, 1),
+  #  celltype=sapply(strsplit(colnames(data),"_"), `[`, 2)
+  #)
+  annorow=data.frame(
+    origin=sapply(strsplit(colnames(data),"_"), `[`, 1)
+  )
+  rownames(annorow)=colnames(data)
+  #substr origin
+  annorow$origin=toupper(substr(annorow$origin,1,1))
+  annorow$origin=factor(annorow$origin,levels = c("L","N","S"))
+  #order cell type
+  #annorow$celltype=factor(annorow$celltype,levels = order)
+  #annorow$celltype=droplevels(annorow$celltype)
+  #set color
+  if(color.origin==""){
+    color.origin=c(limb.colors(1),nasal.colors(1),somite.colors(1))
+    names(color.origin)=levels(annorow$origin)
+  }
+  #if(color.ctype==""){
+  #  color.ctype=hue_pal()(length(unique(annorow$celltype)))
+  #  names(color.ctype)=levels(annorow$celltype)
+  #}
+  #annocolor=list(origin=color.origin,celltype=color.ctype)
+  annocolor=list(origin=color.origin)
+  #return
+  anno=list()
+  anno$row=annorow
+  anno$color=annocolor
+  return(anno)
+}
+
+#ctype.removed=c("blood","vessel")
+average.cor=function(my.integrated=my.integrated,gene.used=hvgscran,ctype.removed=NULL,color.origin="",color.ctype="",color.gradient=colorRampPalette(rev(brewer.pal(n = 7, name = "RdYlBu")))(100),
+                     method.used="pearson",assay.used="integrated",log=FALSE,scale=FALSE){
+  #calculate average expression
+  #my.average=AverageExpression(my.integrated,assays = assay.used)[[assay.used]]
+  my.average=AverageExpression(my.integrated,assays = assay.used,slot="counts")[[assay.used]]
+  #calculate correlation
+  my.avgSelect=my.average[gene.used,] 
+  if(log){my.avgSelect=log1p(my.avgSelect)}
+  if(scale){my.avgSelect=t(scale(t(my.avgSelect)))}
+  my.correlation=pairwise.cor(data = my.avgSelect,method = method.used)
+  my.correlation[is.na(my.correlation)]=0
+  #add annotation legend
+  anno=pheatmap.anno(data=my.correlation,color.origin=color.origin ,color.ctype=color.ctype)
+  #visualization
+  p1=pheatmap(
+    mat               = my.correlation,
+    color = color.gradient,
+    border_color      = NA,
+    show_colnames     = F,
+    show_rownames     = TRUE,
+    cluster_rows=TRUE, cluster_cols = TRUE, 
+    drop_levels       = TRUE,
+    fontsize          = 12, silent = TRUE,
+    annotation_col    = anno$row,
+    annotation_colors = anno$color,
+    main              = paste0(method.used,"'s correlation")
+  )
+  #remove close cell types:blood
+  samples.subset=colnames(my.correlation)
+  if(length(ctype.removed)!=0){
+    for(i in 1:length(ctype.removed)){
+      samples.subset=samples.subset[!grepl(ctype.removed[i],samples.subset)]
+    }
+  }
+  my.correlation2=my.correlation[samples.subset,samples.subset]
+  #add annotation legend
+  anno2=pheatmap.anno(data=my.correlation2)
+  p2=pheatmap(
+    mat               = my.correlation2,
+    color = color.gradient,
+    border_color      = NA,
+    show_colnames     = F,
+    show_rownames     = TRUE,
+    cluster_rows=TRUE, cluster_cols = TRUE, 
+    drop_levels       = TRUE,
+    fontsize          = 12, silent = TRUE,
+    annotation_col    = anno2$row,
+    annotation_colors = anno2$color,
+    main              = paste0(method.used,"'s correlation")
+  )
+  #plot
+  #plot.new();print(p1);
+  plot.new();print(p2)
+  #output
+  my.list=list()
+  my.list[['average.exp']]=my.average
+  my.list[['correlation']]=my.correlation
+  my.list[['hclust']]=p1$tree_row
+  my.list[['plot']]=p2
+  return(my.list)
+}
+
+filterDaps=function(degs=daps.limb,logfc.thres=0.5,padj.thres=0.05,pct.thres=0.1,n=1000,ctype=unique(daps.limb$cluster)){
+  degs=degs[degs$avg_log2FC > logfc.thres & degs$p_val_adj < padj.thres,]
+  degs$maxpct=apply(degs[,c("pct.1","pct.2")],1,max)
+  degs=degs[degs$maxpct > pct.thres,]
+  degs=degs[order(degs$cluster,-degs$avg_log2FC),]
+  degs.keep=NULL
+  for(i in 1:length(ctype)){
+    degs.tmp=degs[degs$cluster==ctype[i],]
+    if(nrow(degs.tmp) < n){
+      degs.keep=rbind(degs.keep,degs.tmp)
+    }else{
+      degs.keep=rbind(degs.keep,degs.tmp[1:n,])
+    }
+  }
+  return(degs.keep)
+}
+
+save_pheatmap_pdf <- function(x, filename, width=6, height=4) {
+   stopifnot(!missing(x))
+   stopifnot(!missing(filename))
+   pdf(filename, width=width, height=height)
+   grid::grid.newpage()
+   grid::grid.draw(x$gtable)
+   dev.off()
+}
+```
+
+## peak set
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+## geneset1: top DAPs of all cell type
+n=1000
+daps.limb=read.table(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/diffAnalysis/","limb_daps_broadCelltype.txt"),sep = "\t",row.names = 1,header = T,stringsAsFactors = F);table(daps.limb$cluster)
+tops.limb=filterDaps(degs=daps.limb,
+                     logfc.thres=0.5,padj.thres=0.05,pct.thres=0.1,
+                     n=n,ctype=unique(daps.limb$cluster))
+dim(tops.limb);table(tops.limb$cluster)
+
+daps.nasal=read.table(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/diffAnalysis/","nasal_daps_broadCelltype.txt"),sep = "\t",row.names = 1,header = T,stringsAsFactors = F);table(daps.nasal$cluster)
+tops.nasal=filterDaps(degs=daps.nasal,
+                     logfc.thres=0.5,padj.thres=0.05,pct.thres=0.1,
+                     n=n,ctype=unique(daps.nasal$cluster))
+dim(tops.nasal);table(tops.nasal$cluster)
+
+daps.somite=read.table(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/diffAnalysis/","somite_daps_broadCelltype.txt"),sep = "\t",row.names = 1,header = T,stringsAsFactors = F);table(daps.somite$cluster)
+tops.somite=filterDaps(degs=daps.somite,
+                     logfc.thres=0.5,padj.thres=0.05,pct.thres=0.1,
+                     n=n,ctype=unique(daps.somite$cluster))
+dim(tops.somite);table(tops.somite$cluster)
+
+tops.all=c(tops.limb$gene,tops.nasal$gene,tops.somite$gene)
+geneset1=tops.all[!duplicated(tops.all)];length(geneset1)
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+## geneset2: top DAPs of mesenchyme populations
+n=1000
+tops.limb2=filterDaps(degs=daps.limb,
+                     logfc.thres=0.5,padj.thres=0.05,pct.thres=0.1,
+                     n=n,ctype=c("amb_Mesenchyme","Mesenchyme","MesenchymeORskeletogenicCells","skeletogenicCells"))
+dim(tops.limb2);table(tops.limb2$cluster)
+
+tops.nasal2=filterDaps(degs=daps.nasal,
+                     logfc.thres=0.5,padj.thres=0.05,pct.thres=0.1,
+                     n=n,ctype=c("amb_cranialMesenchyme","cranialMesenchyme"))
+dim(tops.nasal2);table(tops.nasal2$cluster)
+
+tops.somite2=filterDaps(degs=daps.somite,
+                     logfc.thres=0.5,padj.thres=0.05,pct.thres=0.1,
+                     n=n,ctype=c("Sclerotome"))
+dim(tops.somite2);table(tops.somite2$cluster)
+
+tops.all2=c(tops.limb2$gene,tops.nasal2$gene,tops.somite2$gene)
+geneset2=tops.all2[!duplicated(tops.all2)];length(geneset2)
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+hvgsum1=read.table("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/preprocessed_scranHVPs.txt")
+hvgsum1=hvgsum1[hvgsum1$Freq>=2,];length(hvgsum1$hvgs)
+
+pkset=unique(c(geneset1,geneset2,hvgsum1$hvgs));length(pkset)
+```
+
+## binarized 
+
+### load in signac project
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+combined=readRDS("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/convergence_integrated_signac_onlyM2P_HvpDaps_combined.rds")
+
+dim(combined)
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+combined.ori=readRDS("~/scATAC/convergence/preprocessed_scatac_M2Pmatrix.rds")
+tmp=combined.ori[pkset,rownames(combined@meta.data)]
+tmp[tmp>=1]=1
+combined[['binarized']]=CreateAssayObject(data=tmp)
+combined@assays$binarized@counts=tmp
+combined@active.assay="binarized"
+VariableFeatures(combined)=hvgsum1$hvgs
+rm(tmp);gc()
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+#add celltype based on fine clustering
+combined$fine_unique=paste0(combined$origin,"_cls",combined$annotation_fine)
+celltype.fine=c("muscle","mesenchyme WNT5A","mesenchyme or connective tissue","mesenchyme anterior","mesenchyme SHOX2",
+                "mesenchyme amb","chondrocytes","chondrocytes late","mesenchyme or connective tissue amb","leukocytes",
+                "skin","neurons","neuronal cells","chondrocytes","mesenchyme periocular",
+                "mesenchyme active cell","mesenchyme neural crest derived","blood","connective tissue eye","mesenchyme amb",
+                "skin","vessels","somite amb","neuralTube progenitors or neurons","dermomyotome",
+                "neuralTube progenitors","blood","dermomyotome amb","skin","somite1",
+                "lateral plate mesoderm","neurons","neural crest","vessels","somite2",
+                "chondrocytes","intermediate mesoderm")
+names(celltype.fine)=unique(combined$fine_unique)
+Idents(combined)=combined$fine_unique
+combined=RenameIdents(combined,celltype.fine)
+
+celltype.flevel=c("mesenchyme neural crest derived","mesenchyme WNT5A","mesenchyme anterior","somite1","somite2","somite amb",
+                  "chondrocytes","chondrocytes late",
+                  "mesenchyme or connective tissue","mesenchyme or connective tissue amb","mesenchyme SHOX2","mesenchyme active cell","connective tissue eye","mesenchyme periocular","mesenchyme amb",
+                  "lateral plate mesoderm","neural crest","dermomyotome","dermomyotome amb",
+                  "intermediate mesoderm", "muscle",
+                  "neurons","neuralTube progenitors or neurons","neuralTube progenitors","neuronal cells",
+                  "skin","vessels","blood","leukocytes")
+Idents(combined)=factor(Idents(combined),levels=celltype.flevel)
+combined$celltype.fine=Idents(combined)
+
+```
+
+## heatmap
+
+### proximal vs distal
+
+proximal: Promoter <1kb and 1-2kb, if it’s plus/minus 1-2kb 
+distal:Distal Intergenic and Intron
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+library(ChIPseeker);library(GenomicFeatures)
+anno_path <- "/scicore/home/tschoppp/GROUP/references/genomes/ENS_g6/chicken_Gg6_atac_pre/"
+txdb = makeTxDbFromGFF(file= paste0(anno_path,"Gg6_extended_200819.filter.gtf"),
+                       format = "gtf", organism = "Gallus gallus")
+
+#https://github.com/YuLab-SMU/ChIPseeker/blob/devel/R/getGenomicAnnotation.R
+peakAnno = annotatePeak(peak=paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/peakcall/nonredundantpeaks_combined.bed"),TxDb = txdb,annoDb = "org.Gg.eg.db")
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+# promoters defined by library(ChIPseeker)
+mtx.cate=peakAnno@anno
+mtx.cate=resize(mtx.cate,width = 501, fix = 'end')
+mtx.cate$annotation=sapply(strsplit(mtx.cate$annotation," \\(ENSGAL"),'[',1)
+table(mtx.cate$annotation)
+mtx.cate$peakName=paste(seqnames(mtx.cate),start(mtx.cate),end(mtx.cate),sep = "-")
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+mtx.cate=as.data.frame(mtx.cate)
+mtx.cate$broad=""
+mtx.cate[mtx.cate$annotation %in% c("Promoter (<=1kb)","Promoter (1-2kb)"),"broad"]="proximal"
+mtx.cate[mtx.cate$annotation %in% c("Distal Intergenic","Intron"),"broad"]="distal"
+table(mtx.cate$broad)
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+pklist=geneset1
+pklist.pr=geneset1[geneset1 %in% mtx.cate[mtx.cate$broad=="proximal","peakName"]];length(pklist.pr)
+pklist.dt=geneset1[geneset1 %in% mtx.cate[mtx.cate$broad=="distal","peakName"]];length(pklist.dt)
+
+```
+
+6.7X times distal peaks than the proximal.
+
+### heatmap (merged)
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+Idents(combined)=paste0(combined$origin,"_",combined$celltype.fine)
+ctype.order=celltype.flevel
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+library(RColorBrewer)
+#set color
+#color.gradient=colorRampPalette(rev(brewer.pal(n = 7, name ="RdYlBu")))(100)
+color.gradient=viridis(n=100,option = "A")
+
+#to use default color
+color.origin="";color.ctype=""
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+#get subset
+mcluster=unique(Idents(combined))
+mcls=c(as.character(mcluster[grep(c("mesenchyme|_somite|chondrocytes|eye"),mcluster)])) #|skin
+my.subset=mcls[!(grepl("mesenchyme amb",mcls))]
+my.subset
+```
+
+#### all cell type & geneset1 (top 1000 DAPs for all cell types in broad cluster)
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.width=15,fig.height=9}
+# binarized combined data
+length(geneset1);length(geneset1[geneset1 %in% rownames(combined)])
+correlation1=average.cor(my.integrated=combined, gene.used=geneset1[geneset1 %in% rownames(combined)], method.used="spearman",assay.used="binarized",color.origin=color.origin,color.ctype=color.ctype,color.gradient = color.gradient)
+
+save_pheatmap_pdf(correlation1$plot,"~/figure_drafts/corHeatmap_scatac_geneset1ActypeSpearman_v2.pdf", width=12, height=8)
+
+correlation2=average.cor(my.integrated=combined, gene.used=geneset1[geneset1 %in% rownames(combined)], method.used="pearson",assay.used="binarized",log = TRUE,color.origin=color.origin,color.ctype=color.ctype,color.gradient = color.gradient)
+
+#save_pheatmap_pdf(correlation2$plot,"~/figure_drafts/corHeatmap_scatac_geneset1Pearson_v2.pdf", width=12, height=8)
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.width=15,fig.height=9}
+#### only mesenchyme
+length(geneset1)
+length(geneset1[geneset1 %in% rownames(combined)])
+correlation2=average.cor(my.integrated=subset(combined,cell=names(Idents(combined)[(Idents(combined) %in% my.subset)])), gene.used=geneset1[geneset1 %in% rownames(combined)], method.used="spearman",assay.used="binarized",color.origin=color.origin,color.ctype=color.ctype,color.gradient = color.gradient)
+
+#save_pheatmap_pdf(correlation2$plot,"~/figure_drafts/corHeatmap_scatac_geneset1MschymSpearman_v2.pdf", width=12, height=8)
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.width=15,fig.height=9}
+pk.used=pklist.pr
+length(pk.used[pk.used %in% rownames(combined)])
+#### only mesenchyme
+correlation.pr=average.cor(my.integrated=subset(combined,cell=names(Idents(combined)[(Idents(combined) %in% my.subset)])), gene.used=pk.used[pk.used %in% rownames(combined)], method.used="spearman",assay.used="binarized",color.origin=color.origin,color.ctype=color.ctype,color.gradient = color.gradient)
+
+#save_pheatmap_pdf(correlation.pr$plot,"~/figure_drafts/corHeatmap_scatac_geneset1PromoterMschymSpearman_v2.pdf", width=12, height=8)
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.width=15,fig.height=9}
+#randomly pick the same amount of distal peaks as the proximal
+set.seed(123)
+pk.used=sample(pklist.dt,length(pklist.pr))
+length(pk.used[pk.used %in% rownames(combined)])
+#### only mesenchyme
+correlation.dt=average.cor(my.integrated=subset(combined,cell=names(Idents(combined)[(Idents(combined) %in% my.subset)])), gene.used=pk.used[pk.used %in% rownames(combined)], method.used="spearman",assay.used="binarized",color.origin=color.origin,color.ctype=color.ctype,color.gradient = color.gradient)
+
+#save_pheatmap_pdf(correlation.dt$plot,"~/figure_drafts/corHeatmap_scatac_geneset1DistalMschymSpearman_v2.pdf", width=12, height=8)
+
+gc()
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.width=15,fig.height=9}
+my.breaks=seq(0.5,1,0.5/100)
+my.color=viridis(n=length(my.breaks),option = "rocket")
+
+my.anno=pheatmap.anno(data=correlation.pr$correlation)
+my.method="spearman"
+p1=pheatmap(
+  mat               = correlation.pr$correlation,
+  color = my.color,
+  border_color      = NA,
+  show_colnames     = F,
+  show_rownames     = TRUE,
+  cluster_rows=TRUE, cluster_cols = TRUE, 
+  drop_levels       = TRUE,
+  fontsize          = 12, silent = TRUE,
+  annotation_col    = my.anno$row,
+  annotation_colors = my.anno$color,
+  breaks = my.breaks,
+  main              = paste0(my.method,"'s correlation")
+)
+plot.new();p1
+
+my.anno=pheatmap.anno(data=correlation.dt$correlation)
+p2=pheatmap(
+  mat               = correlation.dt$correlation,
+  color = my.color,
+  border_color      = NA,
+  show_colnames     = F,
+  show_rownames     = TRUE,
+  cluster_rows=TRUE, cluster_cols = TRUE, 
+  drop_levels       = TRUE,
+  fontsize          = 12, silent = TRUE,
+  annotation_col    = my.anno$row,
+  annotation_colors = my.anno$color,
+  breaks = my.breaks,
+  main              = paste0(my.method,"'s correlation")
+)
+plot.new();p2
+
+#save_pheatmap_pdf(p1,"~/figure_drafts/corHeatmap_scatac_geneset1PromoterMschymSpearman_rocket.pdf", width=12, height=8)
+#save_pheatmap_pdf(p2,"~/figure_drafts/corHeatmap_scatac_geneset1DistalMschymSpearman_rocket.pdf", width=12, height=8)
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+cor.test=correlation.pr$correlation
+dist.s=cor.test[rownames(cor.test)[grepl("^somite_",rownames(cor.test))],colnames(cor.test)[grepl("^nasal_",colnames(cor.test))]]
+dist.l=cor.test[rownames(cor.test)[!grepl("^limb_",rownames(cor.test))],colnames(cor.test)[grepl("^limb_",colnames(cor.test))]]
+dist.nsl=c(as.vector(dist.s),as.vector(dist.l));length(dist.nsl)
+dist.nsl.pr=dist.nsl
+
+cor.test=correlation.dt$correlation
+dist.s=cor.test[rownames(cor.test)[grepl("^somite_",rownames(cor.test))],colnames(cor.test)[grepl("^nasal_",colnames(cor.test))]]
+dist.l=cor.test[rownames(cor.test)[!grepl("^limb_",rownames(cor.test))],colnames(cor.test)[grepl("^limb_",colnames(cor.test))]]
+dist.nsl=c(as.vector(dist.s),as.vector(dist.l));length(dist.nsl)
+dist.nsl.dt=dist.nsl
+
+dt=data.frame(coeff=c(dist.nsl.dt,dist.nsl.pr),
+              category=c(rep("distal",length(dist.nsl.dt)),rep("proximal",length(dist.nsl.pr))))
+dt$category=as.factor(dt$category)
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+p1=ggplot(dt, aes(x=category, y=coeff)) +
+  geom_boxplot(outlier.colour="white") + #(draw_quantiles = c(.50))
+  #stat_summary(fun.y=mean, geom="point", shape=23, size=4) +
+  ylab("Correlation coefficient") + xlab("peak annotation") + #ylim(c(0,1)) +
+  theme_classic() + ggtitle("pseudobulk correlation") +
+  theme(legend.text = element_text(size=10),
+        axis.text.x = element_text(size=10,angle=-30,hjust=0.1),
+        axis.text.y = element_text(size=10),
+        axis.title = element_text(size=15))
+p1
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+t.test(dist.nsl.dt,dist.nsl.pr)
+wilcox.test(dist.nsl.dt,dist.nsl.pr)
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+## save
+pdf("~/figure_drafts/corHeatmap_scatac_boxplot.pdf",height = 5,width = 5)
+p1
+dev.off()
+
+```
+
+## log
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+sessionInfo()
+```

@@ -1,0 +1,255 @@
+---
+title: "figure4_chondrocytesDiffAnalysis"
+output: 
+  html_document:
+    df_print: paged
+  html_notebook:
+editor_options:
+  chunk_output_type: inline
+---
+
+for panel E and G
+
+```{r setup, message=FALSE, warning=FALSE, echo=FALSE}
+# packages
+library(Seurat);library(Signac);library(ggplot2)
+library(dplyr);library(RColorBrewer)
+library(viridis);library(gridExtra)
+library(pheatmap);library(reshape2)
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+save_pheatmap_pdf <- function(x, filename, width=6, height=4) {
+   stopifnot(!missing(x))
+   stopifnot(!missing(filename))
+   pdf(filename, width=width, height=height)
+   grid::grid.newpage()
+   grid::grid.draw(x$gtable)
+   dev.off()
+}
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+gene.info=read.table("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/ensembl97_geneinfo.txt", sep="\t",header = TRUE,row.names = 1,stringsAsFactors = FALSE)
+gene.info[gene.info$genename=="","genename"]=rownames(gene.info[gene.info$genename=="",])
+gene.info$genename=toupper(gene.info$genename)
+
+tf=read.table("/scicore/home/tschoppp/GROUP/references/genomes/TFs/Gallus_gallus_TF_AnimalTFDB3_edited.txt", sep = "\t", header = T)
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+#reorder celltype
+subalevels=list()
+origin="nasal"
+subalevels[[origin]]=c("neuralcrestDerivedMesenchyme","mesenchymeActiveCell","amb_periocularMesenchyme","eyeConnectiveTissue","chondrocytes")
+origin="somite"
+subalevels[[origin]]=c("somite2","somite1","amb_somite","chondrocytes")
+origin="limb"
+subalevels[[origin]]=c("WNT5AMesenchyme","anteriorMesenchyme","mesenchymeORnsConnectiveTissue","amb_mesenchymeORnsConnectiveTissue","SHOX2Mesenchyme","lateChondrocytes","chondrocytes")
+
+```
+
+## common TFs (scRNA)
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+# scRNA
+genes.common=c("SOX9","SOX5","FOXP3")
+
+degs.n=read.table("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/clustering/fig1_nasalFine_degs_pval0.2pct0.01fd0.01.txt") 
+degs.n=degs.n[degs.n$cluster=="chondrocytes" & degs.n$avg_log2FC>0 & degs.n$p_val < 0.05,]
+degs.n=degs.n[degs.n$name %in% genes.common,];dim(degs.n)
+degs.n$avg_log2FC
+
+degs.s=read.table("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/clustering/fig1_somiteFine_degs_pval0.2pct0.01fd0.01.txt") 
+degs.s=degs.s[degs.s$cluster=="chondrocytes" & degs.s$avg_log2FC>0 & degs.s$p_val < 0.05,]
+degs.s=degs.s[degs.s$name %in% genes.common,];dim(degs.s)
+degs.s$avg_log2FC
+
+degs.l=read.table("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/clustering/fig1_limbFine_degs_pval0.2pct0.01fd0.01.txt")
+degs.l=degs.l[degs.l$cluster=="chondrocytes" & degs.l$avg_log2FC>0 & degs.l$p_val < 0.05,]
+degs.l=degs.l[degs.l$name %in% genes.common,];dim(degs.l)
+degs.l$avg_log2FC
+
+fc.mtx=data.frame(nasal=rep(0,length(mf.comn)),
+        somite=rep(0,length(mf.comn)),
+        limb=rep(0,length(mf.comn)))
+rownames(fc.mtx)=mf.comn
+for(i in 1:length(mf.comn)){
+  mf.tmp=mf.comn[i]
+  fc.mtx[mf.tmp,"nasal"]=degs.n[degs.n$name==mf.tmp,"avg_log2FC"]
+  fc.mtx[mf.tmp,"somite"]=degs.s[degs.s$name==mf.tmp,"avg_log2FC"]
+  fc.mtx[mf.tmp,"limb"]=degs.l[degs.l$name==mf.tmp,"avg_log2FC"]
+}
+fc.mtx
+
+combn.mtx=melt(fc.mtx)
+colnames(combn.mtx)=c("origin","avg_log2FC")
+combn.mtx$gene=rep(rownames(fc.mtx),3)
+combn.mtx$origin=factor(combn.mtx$origin, levels = rev(c("nasal","somite","limb")))
+p1=ggplot(combn.mtx,
+          aes(x = avg_log2FC,
+              y = gene,
+              fill = origin)) +
+  geom_bar(width=.5, stat = "identity",
+           position=position_dodge(0.7)) +
+  scale_fill_manual("origin", values = c("nasal" = "#DC0078", "somite" = "#008FD4", "limb" = "#FFD01F")) +
+  theme_classic() + ylab("") + xlab("log2FC")
+print(p1)
+
+pdf("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts/fig4/chondrocytes_commonOnes_scRNA.pdf",width = 6,height = 4)
+p1
+dev.off()
+```
+
+## common TFs (scATAC)
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+mf2tfnames.all=readRDS(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/motifEnrich/all_denovoMotifs_mf2tfnames.rds"))
+
+#with pseudotime correction, without conflict among origins.
+mf.anno=readRDS("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/motifEnrich/motifUnion_originConsist.rds")
+mfunion.select=rbind(mf.anno$nasal,mf.anno$somite,mf.anno$limb)
+mfunion.select$unique=paste0(mfunion.select$origin,"_",
+                           sapply(strsplit(mfunion.select$motifid,"-"),"[",1),"_",
+                           sapply(strsplit(mfunion.select$motifid,"-"),"[",2),"_",
+                           mfunion.select$tfname)
+
+mfunion.select$mfnew.unique=""
+for(i in 1:nrow(mfunion.select)){
+  tmp.id=mfunion.select$motifid[i]
+  mfunion.select$mfnew.unique[i]=mf2tfnames.all$overall[mf2tfnames.all$overall$motifid==tmp.id,"mfnew.unique"]
+}
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+mf.n=mfunion.select[mfunion.select$tfname %in% c("TCF7L1","FOXO3","FOXF1","MEF2A","MGA") & mfunion.select$origin=="N",]
+mf.s=mfunion.select[mfunion.select$tfname %in% c("SOX9","SREBF2") & mfunion.select$origin=="S",]
+mf.l=mfunion.select[mfunion.select$tfname %in% genes.common & mfunion.select$origin=="L",]
+
+#plot the heatmap
+mf.select=rbind(mf.n,mf.s,mf.l)
+
+# color palette
+my.col=brewer.pal(n = 9, name ="Blues")
+break3=seq(-1.5, 1.8, by=0.025)
+col3=colorRampPalette(my.col[c(1,2,4,8,9)])(length(break3))
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.width=6,fig.height=6}
+samples="nasal"
+
+subset.atac=readRDS(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/integration/",samples,"_atac_intgtFine010721_activity.rds"))
+my.meta=readRDS(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/integration/",samples,"_atac_integrated010721_meta.rds"))
+subset.atac=AddMetaData(subset.atac,metadata = my.meta[rownames(subset.atac@meta.data),c("broad","annotation_broad","fine","annotation_fine")],col.name = c("broad","annotation_broad","fine","annotation_fine"))
+
+#read in chromvar motif activity
+chromvar.mtx=read.table(gzfile(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/motifEnrich/",samples,"_chromvarDenovo-LNSmotifs.txt.gz")), sep = "\t")
+colnames(chromvar.mtx)=gsub("\\.1","-1",colnames(chromvar.mtx))
+rownames(chromvar.mtx)=substr(rownames(chromvar.mtx),1,20)
+rownames(chromvar.mtx)=gsub("sub-","sub",rownames(chromvar.mtx))
+chromvar.mtx=as.matrix(chromvar.mtx)
+subset.atac@active.assay="activity"
+subset.atac[["chromvar"]]=CreateAssayObject(data=chromvar.mtx[,colnames(subset.atac)])
+
+Idents(subset.atac)=subset.atac$annotation_fine
+# as we don't need to expm1 the data, so put it in scale.data for calculation
+subset.atac@assays$chromvar@scale.data=subset.atac@assays$chromvar@data
+avg.act=AverageExpression(subset.atac,assays = "chromvar",slot = "scale.data")[["chromvar"]]
+
+#rename avg.act
+my.avgSelect=avg.act[mf.select$motifid,]
+rownames(my.avgSelect)=mf.select$unique
+#scaled by row
+my.avgSelect=t(scale(t(my.avgSelect)))
+quantile(my.avgSelect)
+
+plot.new()
+p1=pheatmap(my.avgSelect[,subalevels[[samples]]],color = col3,breaks = break3,cluster_rows = F,cluster_cols = F)
+p1
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.width=6,fig.height=6}
+samples="somite"
+
+subset.atac=readRDS(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/integration/",samples,"_atac_intgtFine010721_activity.rds"))
+my.meta=readRDS(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/integration/",samples,"_atac_integrated010721_meta.rds"))
+subset.atac=AddMetaData(subset.atac,metadata = my.meta[rownames(subset.atac@meta.data),c("broad","annotation_broad","fine","annotation_fine")],col.name = c("broad","annotation_broad","fine","annotation_fine"))
+
+#read in chromvar motif activity
+chromvar.mtx=read.table(gzfile(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/motifEnrich/",samples,"_chromvarDenovo-LNSmotifs.txt.gz")), sep = "\t")
+colnames(chromvar.mtx)=gsub("\\.1","-1",colnames(chromvar.mtx))
+rownames(chromvar.mtx)=substr(rownames(chromvar.mtx),1,20)
+rownames(chromvar.mtx)=gsub("sub-","sub",rownames(chromvar.mtx))
+chromvar.mtx=as.matrix(chromvar.mtx)
+subset.atac@active.assay="activity"
+subset.atac[["chromvar"]]=CreateAssayObject(data=chromvar.mtx[,colnames(subset.atac)])
+
+Idents(subset.atac)=subset.atac$annotation_fine
+# as we don't need to expm1 the data, so put it in scale.data for calculation
+subset.atac@assays$chromvar@scale.data=subset.atac@assays$chromvar@data
+avg.act=AverageExpression(subset.atac,assays = "chromvar",slot = "scale.data")[["chromvar"]]
+
+#rename avg.act
+my.avgSelect=avg.act[mf.select$motifid,]
+rownames(my.avgSelect)=mf.select$unique
+#scaled by row
+my.avgSelect=t(scale(t(my.avgSelect)))
+quantile(my.avgSelect)
+
+plot.new()
+p2=pheatmap(my.avgSelect[,subalevels[[samples]]],color = col3,breaks = break3,cluster_rows = F,cluster_cols = F)
+p2
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.width=6,fig.height=6}
+samples="limb"
+
+subset.atac=readRDS(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/integration/",samples,"_atac_intgtFine010721_activity.rds"))
+my.meta=readRDS(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/integration/",samples,"_atac_integrated010721_meta.rds"))
+subset.atac=AddMetaData(subset.atac,metadata = my.meta[rownames(subset.atac@meta.data),c("broad","annotation_broad","fine","annotation_fine")],col.name = c("broad","annotation_broad","fine","annotation_fine"))
+
+#read in chromvar motif activity
+chromvar.mtx=read.table(gzfile(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/motifEnrich/",samples,"_chromvarDenovo-LNSmotifs.txt.gz")), sep = "\t")
+colnames(chromvar.mtx)=gsub("\\.1","-1",colnames(chromvar.mtx))
+rownames(chromvar.mtx)=substr(rownames(chromvar.mtx),1,20)
+rownames(chromvar.mtx)=gsub("sub-","sub",rownames(chromvar.mtx))
+chromvar.mtx=as.matrix(chromvar.mtx)
+subset.atac@active.assay="activity"
+subset.atac[["chromvar"]]=CreateAssayObject(data=chromvar.mtx[,colnames(subset.atac)])
+
+Idents(subset.atac)=subset.atac$annotation_fine
+# as we don't need to expm1 the data, so put it in scale.data for calculation
+subset.atac@assays$chromvar@scale.data=subset.atac@assays$chromvar@data
+avg.act=AverageExpression(subset.atac,assays = "chromvar",slot = "scale.data")[["chromvar"]]
+
+#rename avg.act
+my.avgSelect=avg.act[mf.select$motifid,]
+rownames(my.avgSelect)=mf.select$unique
+#scaled by row
+my.avgSelect=t(scale(t(my.avgSelect)))
+quantile(my.avgSelect)
+
+plot.new()
+p3=pheatmap(my.avgSelect[,subalevels[[samples]]],color = col3,breaks = break3,cluster_rows = F,cluster_cols = F)
+p3
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+# save heatmap
+save_pheatmap_pdf(p1,"/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts/fig4/chondrocytes_commonOnesRaw_scATAC_nasal.pdf",width = 6,height = 6)
+save_pheatmap_pdf(p2,"/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts/fig4/chondrocytes_commonOnesRaw_scATAC_somite.pdf",width = 6,height = 6)
+save_pheatmap_pdf(p3,"/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts/fig4/chondrocytes_commonOnesRaw_scATAC_limb.pdf",width = 6,height = 6)
+
+```
+
+## log
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+sessionInfo()
+```
+

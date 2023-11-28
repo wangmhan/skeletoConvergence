@@ -1,0 +1,198 @@
+---
+title: "scATAC_diffAnalysis"
+output: 
+  html_document:
+    df_print: paged
+  html_notebook:
+editor_options:
+  chunk_output_type: inline
+---
+
+for panel A
+
+```{r setup, message=FALSE, warning=FALSE, echo=FALSE}
+library(ggplot2)
+library(reshape2); library(dplyr); library(plyr)
+library(TFBSTools);library(eulerr)
+library(pheatmap);library(viridisLite)
+
+set.seed(1234)
+```
+
+## read in motif sets
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+mf2tfnames.all=readRDS(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/motifEnrich/all_denovoMotifs_mf2tfnames.rds"))
+
+tfs=read.table("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/Gallus_gallus_TF_AnimalTFDB3_edited.txt",sep="\t",header = TRUE,stringsAsFactors = FALSE)
+tfs$Symbol=toupper(tfs$Symbol)
+
+mf.all=readRDS(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/motifEnrich/LNS_denovoMotifs_assigned.rds"))
+names(mf.all)=gsub("limb\\.L\\.","",names(mf.all))
+names(mf.all)=gsub("nasal\\.N\\.","",names(mf.all))
+names(mf.all)=gsub("somite\\.S\\.","",names(mf.all))
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+#with pseudotime correction, without conflict among origins.
+mf.anno=readRDS("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/motifEnrich/motifUnion_originConsist.rds")
+mfunion.used=rbind(mf.anno$nasal,mf.anno$somite,mf.anno$limb)
+mfunion.used$unique=paste0(mfunion.used$origin,"_",
+                           sapply(strsplit(mfunion.used$motifid,"-"),"[",1),"_",
+                           sapply(strsplit(mfunion.used$motifid,"-"),"[",2),"_",
+                           mfunion.used$tfname)
+
+mfunion.used$mfnew.unique=""
+for(i in 1:nrow(mfunion.used)){
+  tmp.id=mfunion.used$motifid[i]
+  mfunion.used$mfnew.unique[i]=mf2tfnames.all$overall[mf2tfnames.all$overall$motifid==tmp.id,"mfnew.unique"]
+}
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+# update the mfunion.used$tfFamily
+mf.lns=mfunion.used
+
+#manually curated some TF family:
+# mf.lns[mf.lns$family=="unknown","tfname"]
+# table(tfs$Family)
+mf.lns[mf.lns$tfname=="MEIS2A.2","tfFamily"]="Homeobox" #tfs[tfs$Symbol=="MEIS2",]
+mf.lns[mf.lns$tfname=="EWSR1","tfFamily"]="TET" #https://www.ncbi.nlm.nih.gov/pmc/articles/PMC6527469/
+mf.lns[mf.lns$tfname=="YY1","tfFamily"]="zf-C2H2" #https://jaspar.genereg.net/matrix/MA0095.2/
+#ENSGALG00000014184: homologuous to SMAD4, from motif_id2name.xlsx
+mf.lns[mf.lns$tfname=="ENSGALG00000014184","tfFamily"]="SMAD" #https://jaspar.genereg.net/matrix/MA1153.1/
+#ENSGALG00000015297: homologuous to FOXO3
+#tfs[tfs$Symbol=="FOXO3",]
+mf.lns[mf.lns$tfname=="ENSGALG00000015297","tfFamily"]="Fork_head"
+#ENSGALG00000049721: homologuous to MAZ
+#https://jaspar.genereg.net/matrix/MA1522.1/
+mf.lns[mf.lns$tfname=="ENSGALG00000049721","tfFamily"]="zf-C2H2"
+#https://jaspar.genereg.net/matrix/MA0161.1/
+mf.lns[mf.lns$tfname=="NF1","tfFamily"]="NF1"
+#https://jaspar.genereg.net/matrix/MA0108.1/
+mf.lns[mf.lns$tfname=="TBP","tfFamily"]="TBP"
+#https://jaspar.genereg.net/matrix/MA0850.1/
+mf.lns[mf.lns$tfname=="FOXP3","tfFamily"]="Fork_head"
+#https://jaspar.genereg.net/matrix/MA1102.1/
+mf.lns[mf.lns$tfname=="CTCFL","tfFamily"]="zf-C2H2"
+# ENSGALG00000034737: homologuous to GLIS2
+#https://jaspar.genereg.net/matrix/MA0736.1/
+mf.lns[mf.lns$tfname=="ENSGALG00000034737","tfFamily"]="zf-C2H2"
+#https://jaspar.genereg.net/matrix/MA1421.1/
+mf.lns[mf.lns$tfname=="TCF7L1","tfFamily"]="TCF7"
+#https://jaspar.genereg.net/matrix/UN0113.1/
+mf.lns[mf.lns$tfname=="BBX","tfFamily"]="HMG"
+#https://jaspar.genereg.net/matrix/MA0754.1/
+mf.lns[mf.lns$tfname=="CUX1","tfFamily"]="Homeo domain factors"
+
+#tmp=mf.lns[mf.lns$tfFamily=="unknown","tfname"]
+#tmp=unique(tmp); tmp[order(tmp)]
+
+#https://jaspar.genereg.net/search?q=ATF1
+mf.lns[mf.lns$tfname=="ATF1","tfFamily"]="bZIP"
+#https://jaspar.genereg.net/matrix/MA1478.1/
+mf.lns[mf.lns$tfname=="DMRTA2","tfFamily"]="zf-DM"
+#https://jaspar.genereg.net/matrix/MA0076.1/
+mf.lns[mf.lns$tfname=="ELK4","tfFamily"]="ETS"
+# ENSGALG00000001035|RORB	unknown	cisbp2_ENSGALG00000001035/RORB_M00820_2.00
+#https://jaspar.genereg.net/matrix/MA1150.1/
+mf.lns[mf.lns$tfname=="ENSGALG00000001035","tfFamily"]="zf-C4"
+#ENSGALG00000030416	novel gene, ensembl related to HOXC5
+#https://jaspar.genereg.net/matrix/MA0485.1/
+mf.lns[mf.lns$tfname=="ENSGALG00000030416","tfFamily"]="Homeo domain factors"
+#ENSGALG00000030902	novel gene, ensembl related to SNAI2
+#https://jaspar.genereg.net/matrix/MA0745.1/
+mf.lns[mf.lns$tfname=="ENSGALG00000030902","tfFamily"]="zf-C2H2"
+#ENSGALG00000046739	ZSCAN29
+#https://jaspar.genereg.net/matrix/MA1602.1/
+mf.lns[mf.lns$tfname=="ENSGALG00000046739","tfFamily"]="zf-C2H2"
+#ENSGALG00000047514	CEBPA|CEBP
+#https://jaspar.genereg.net/matrix/MA0102.2/
+mf.lns[mf.lns$tfname=="ENSGALG00000047514","tfFamily"]="bZIP"
+#ENSGALG00000055022	TCF4; http://jul2019.archive.ensembl.org/Gallus_gallus/Gene/Compara_Ortholog?db=core;g=ENSGALG00000055022;r=Z:431-31487;t=ENSGALT00000105416
+#https://jaspar.genereg.net/matrix/MA0830.1/
+mf.lns[mf.lns$tfname=="ENSGALG00000055022","tfFamily"]="bHLH"
+#https://jaspar.genereg.net/matrix/MA1099.1/
+mf.lns[mf.lns$tfname=="HES1","tfFamily"]="bHLH"
+#https://jaspar.genereg.net/matrix/MA1493.1/
+mf.lns[mf.lns$tfname=="HES6","tfFamily"]="bHLH"
+#https://jaspar.genereg.net/matrix/MA0599.1/
+mf.lns[mf.lns$tfname=="KLF5","tfFamily"]="zf-C2H2"
+#https://jaspar.genereg.net/matrix/MA0700.1/
+mf.lns[mf.lns$tfname=="LH-2A","tfFamily"]="Homeo domain factors"
+#https://jaspar.genereg.net/matrix/MA0619.1/
+mf.lns[mf.lns$tfname=="LIN54","tfFamily"]="CRC domain"
+#https://jaspar.genereg.net/matrix/MA0801.1/
+mf.lns[mf.lns$tfname=="MGA","tfFamily"]="T-box"
+#https://jaspar.genereg.net/matrix/MA1523.1/
+mf.lns[mf.lns$tfname=="MSANTD3","tfFamily"]="MYB"
+#https://jaspar.genereg.net/matrix/MA0788.1/
+mf.lns[mf.lns$tfname=="POU3F3","tfFamily"]="Homeo domain factors"
+#https://jaspar.genereg.net/matrix/MA0859.1/
+mf.lns[mf.lns$tfname=="RARG","tfFamily"]="zf-C4"
+#https://jaspar.genereg.net/matrix/MA1554.1/
+mf.lns[mf.lns$tfname=="RFX7","tfFamily"]="Fork_head"
+#https://www.ensembl.org/Homo_sapiens/Gene/Summary?db=core;g=ENSG00000115750;r=2:9843443-9934416
+mf.lns[mf.lns$tfname=="TAF1B","tfFamily"]="T-box"
+#https://www.genecards.org/cgi-bin/carddisp.pl?gene=ZNF451
+mf.lns[mf.lns$tfname=="ZNF451","tfFamily"]="zf-C2H2"
+
+mf.lns=mf.lns[order(mf.lns$tfFamily,mf.lns$tfname,mf.lns$origin),]
+table(mf.lns$tfFamily)
+
+saveRDS(mf.lns,"/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/motifEnrich/motifUnion_originConsist_addInfo.rds")
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+
+```
+
+## statistic summary
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.width=5,fig.height=6}
+stats=mf.lns
+stats$belong=stats$origin
+stats$belong=gsub("N","nasal",stats$belong)
+stats$belong=gsub("S","somite",stats$belong)
+stats$belong=gsub("L","limb",stats$belong)
+
+stats$belong=factor(stats$belong,levels = c("nasal","somite","limb"))
+g = ggplot(stats,aes(x=belong,group=cls)) + theme_classic()
+g1=g + geom_bar(aes(fill = cls)) 
+g1+ggtitle("cluster ID")+theme(text = element_text(size=15))
+
+g = ggplot(stats,aes(x=belong,group=tfFamily)) + theme_classic()
+g2=g + geom_bar(aes(fill =tfFamily)) 
+g2+ggtitle("TF family") +
+  scale_fill_manual(values = cividis(length(unique(stats$tfFamily)))) +
+  theme(text = element_text(size=15),legend.text = element_text(size=8),legend.key.height= unit(.4, "cm"),         legend.key.width= unit(.4, "cm"))
+
+g = ggplot(stats,aes(x=belong,group=origin)) + theme_classic()
+g3=g + geom_bar(aes(fill = origin)) 
+g3+ggtitle("embryonic origin")+theme(text = element_text(size=15))
+
+pdf(paste0("~/figure_drafts/MotifStats_freqBarplot.pdf"),width = 8,height = 6)
+g1+ggtitle("cluster ID")+theme(text = element_text(size=15))
+
+g2+ggtitle("TF family") +
+  scale_fill_manual(values = cividis(length(unique(stats$tfFamily)))) +
+  theme(text = element_text(size=15),legend.text = element_text(size=8),legend.key.height= unit(.4, "cm"),         legend.key.width= unit(.4, "cm"))
+
+g3+ggtitle("embryonic origin")+theme(text = element_text(size=15))
+
+dev.off()
+```
+
+## log
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+sessionInfo()
+```
+
+
+
