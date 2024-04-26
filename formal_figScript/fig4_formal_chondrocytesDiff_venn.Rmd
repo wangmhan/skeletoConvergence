@@ -78,6 +78,19 @@ dev.off()
 
 ```
 
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+dmotif.lns=unique(c(dmotif.n,dmotif.s,dmotif.l))
+dmotif.venn=data.frame(motifName=dmotif.lns,
+                       nasal=0,somite=0,limb=0)
+dmotif.venn[dmotif.venn$motifName %in% dmotif.n,"nasal"]=1
+dmotif.venn[dmotif.venn$motifName %in% dmotif.s,"somite"]=1
+dmotif.venn[dmotif.venn$motifName %in% dmotif.l,"limb"]=1
+dmotif.venn[rowSums(dmotif.venn[,2:4])==3,]
+write.table(dmotif.venn,"/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/diffAnalysis/diffact_chondrocytes_venn.txt",
+            sep = "\t",quote = F)
+
+```
+
 ## log
 
 ```{r, message=FALSE, warning=FALSE, echo=TRUE}

@@ -204,6 +204,19 @@ save_pheatmap_pdf(p1,paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergenc
 ```
 
 ```{r, message=FALSE, warning=FALSE, echo=TRUE}
+# vlnplot for panel G
+my.path="/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts"
+mfunion.used=mfunion.winpt.woutconf
+mfunion.used[mfunion.used$tfname %in% c("SOX9","SOX5","FOXP3"),]
+
+subset.atac@active.assay="chromvar"
+subset.atac@meta.data$anno.tmp=subset.atac@meta.data$annotation_fine
+subset.atac@meta.data[subset.atac@meta.data$anno.tmp!="chondrocytes","anno.tmp"]="otherMesenchyme"
+Idents(subset.atac)=factor(subset.atac$anno.tmp,levels = c("otherMesenchyme","chondrocytes"))
+p=VlnPlot(subset.atac,features = c("clssub5-1-RAACAAAGV","clssub5-6-WAACACWSB","clssub5-31-AAAGGCAW"),pt.size = 0)
+pdf(paste0(my.path,"/fig4/vlnplot_motifAct_",samples,".pdf"), width=10, height=6)
+p
+dev.off()
 
 ```
 
@@ -316,6 +329,19 @@ save_pheatmap_pdf(p1,paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergenc
 ```
 
 ```{r, message=FALSE, warning=FALSE, echo=TRUE}
+# vlnplot for panel G
+my.path="/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts"
+mfunion.used=mfunion.winpt.woutconf
+mfunion.used[mfunion.used$tfname %in% c("SOX9","SOX5","FOXP3"),]
+
+subset.atac@active.assay="chromvar"
+subset.atac@meta.data$anno.tmp=subset.atac@meta.data$annotation_fine
+subset.atac@meta.data[subset.atac@meta.data$anno.tmp!="chondrocytes","anno.tmp"]="otherMesenchyme"
+Idents(subset.atac)=factor(subset.atac$anno.tmp,levels = c("otherMesenchyme","chondrocytes"))
+p=VlnPlot(subset.atac,features = c("clssub5-1-RAACAAAGV","clssub5-6-WAACACWSB","clssub5-31-AAAGGCAW"),pt.size = 0)
+pdf(paste0(my.path,"/fig4/vlnplot_motifAct_",samples,".pdf"), width=10, height=6)
+p
+dev.off()
 
 ```
 
@@ -428,6 +454,19 @@ save_pheatmap_pdf(p1,paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergenc
 ```
 
 ```{r, message=FALSE, warning=FALSE, echo=TRUE}
+# for panel G
+my.path="/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts"
+mfunion.used=mfunion.winpt.woutconf
+mfunion.used[mfunion.used$tfname %in% c("SOX9","SOX5","FOXP3"),]
+
+subset.atac@active.assay="chromvar"
+subset.atac@meta.data$anno.tmp=subset.atac@meta.data$annotation_fine
+subset.atac@meta.data[subset.atac@meta.data$anno.tmp!="chondrocytes","anno.tmp"]="otherMesenchyme"
+Idents(subset.atac)=factor(subset.atac$anno.tmp,levels = c("otherMesenchyme","chondrocytes"))
+p=VlnPlot(subset.atac,features = c("clssub5-1-RAACAAAGV","clssub5-6-WAACACWSB","clssub5-31-AAAGGCAW"),pt.size = 0)
+pdf(paste0(my.path,"/fig4/vlnplot_motifAct_",samples,".pdf"), width=10, height=6)
+p
+dev.off()
 
 ```
 

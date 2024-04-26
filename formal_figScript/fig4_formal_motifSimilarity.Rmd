@@ -79,31 +79,6 @@ score.collect=function(mf.tmp=mf.tmp,sim.selected=sim.selected){
 ```
 
 ```{r, message=FALSE, warning=FALSE, echo=TRUE}
-## compare between same motif: derived from step3_calculateSimilarity.Rmd
-score.compare=readRDS("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/motifEnrich/MotifSimilarity_pairwiseComparison_freq2_forNonMschymEach.rds")
-sim.mtx=NULL
-for(i in 1:length(score.compare)){
-  tmp.mtx=data.frame(score=score.compare[[i]]$score,
-                     celltype=rep(names(score.compare)[i],nrow(score.compare[[i]])))
-  sim.mtx=rbind(sim.mtx,tmp.mtx)
-}
-
-#names(score.compare)
-sim.mtx$celltype=factor(sim.mtx$celltype,levels = c("mschym","neuron","blood","skin","vessel"))
-
-sim.mtx$broad=""
-sim.mtx[sim.mtx$celltype!="mesenchyme","broad"]="nonMesenchyme"
-sim.mtx[sim.mtx$celltype=="mesenchyme","broad"]="Mesenchyme"
-table(sim.mtx$broad)
-
-sim.mtx$broad=""
-sim.mtx[!(sim.mtx$celltype %in% c("mesenchyme","non")),"broad"]="non-Mschym each"
-sim.mtx[sim.mtx$celltype=="mschym","broad"]="Mesenchyme"
-table(sim.mtx$broad)
-
-```
-
-```{r, message=FALSE, warning=FALSE, echo=TRUE}
 ## compare between different motif: derived from fig4_motifSimilarity.Rmd
 mf.lns=readRDS("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/motifEnrich/nonMesenchyme_MotiFreq2_info.rds")
 sim.select=readRDS("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/motifEnrich/nonMesenchyme_MotifSimilarity_freq2.rds")
@@ -134,6 +109,20 @@ score.compare[["mesenchyme"]]=score.collect(mf.tmp=mf.lns.mschym,sim.selected = 
 ```{r, message=FALSE, warning=FALSE, echo=TRUE}
 score.compare=readRDS("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/motifEnrich/MotifSimilarity_pairwiseComparison_freq2_forNonMschymEach_differentMotifs.rds")
 
+score.mtx=NULL
+for(i in 1:length(score.compare)){
+  tmp.mtx=score.compare[[i]]
+  tmp.mtx$celltype=names(score.compare)[i]
+  score.mtx=rbind(score.mtx,tmp.mtx)
+}
+write.table(score.mtx,"/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/motifEnrich/MotifSimilarity_pairwiseComparison_freq2_forNonMschymEach_differentMotifs.txt",
+            sep = "\t",quote = F)
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+score.compare=readRDS("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/motifEnrich/MotifSimilarity_pairwiseComparison_freq2_forNonMschymEach_differentMotifs.rds")
+
 sim.mtx=data.frame(score=c(score.compare[["mesenchyme"]]$score,score.compare[["neuron"]]$score,score.compare[["skin"]]$score,score.compare[["blood"]]$score,score.compare[["vessel"]]$score),
                    celltype=c(rep("mesenchyme",nrow(score.compare[["mesenchyme"]])),rep("neuron",nrow(score.compare[["neuron"]])),rep("skin",nrow(score.compare[["skin"]])),rep("blood",nrow(score.compare[["blood"]])),rep("vessel",nrow(score.compare[["vessel"]]))))
 
@@ -142,75 +131,12 @@ sim.mtx[as.character(sim.mtx$celltype)!="mesenchyme","broad"]="nonMesenchyme"
 sim.mtx[as.character(sim.mtx$celltype)=="mesenchyme","broad"]="Mesenchyme"
 table(sim.mtx$broad)
 
-sim.mtx$celltype=factor(sim.mtx$celltype,levels = c("mesenchyme","neuron","skin","blood"))
-
+sim.mtx$celltype=factor(sim.mtx$celltype,levels = c("mesenchyme","neuron","skin","blood","vessel"))
+table(sim.mtx$celltype)
 ```
 
 ```{r, message=FALSE, warning=FALSE, echo=TRUE}
-sim.mtx=list()
-
-## keep unique comparison: mesenchyme
-#check how many of the motifs are shared in mesenchyme
-tmp1=readRDS("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/motifEnrich/MotifSimilarity_pairwiseComparison_freq2_forNonMschymEach_differentMotifs.rds")
-tmp2=readRDS("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/motifEnrich/MotifSimilarity_pairwiseComparison_freq2_forNonMschymEach.rds")
-
-table(tmp1$mesenchyme$category);table(tmp2$mschym$category)
-tmp1$mesenchyme$unique=paste0(sapply(strsplit(tmp1$mesenchyme$motif1,","),"[",2),",",
-                              sapply(strsplit(tmp1$mesenchyme$motif2,","),"[",2))
-tmp2$mschym$unique=paste0(sapply(strsplit(tmp2$mschym$motif1,","),"[",2),",",
-                              sapply(strsplit(tmp2$mschym$motif2,","),"[",2))
-
-tmp.olp=tmp1$mesenchyme$unique[tmp1$mesenchyme$unique %in% tmp2$mschym$unique];length(tmp.olp)
-tmp1.test=tmp1$mesenchyme;tmp1.test=tmp1.test[!duplicated(tmp1.test$unique),]
-rownames(tmp1.test)=tmp1.test$unique
-tmp2.test=tmp2$mschym;rownames(tmp2.test)=tmp2.test$unique
-
-rownames(tmp1.test)=1:nrow(tmp1.test);rownames(tmp2.test)=1001:(1000+nrow(tmp2.test))
-sim.mtx[["mesenchyme"]]=rbind(tmp1.test[,c("score","category","unique")],tmp2.test[,c("score","category","unique")])
-sim.mtx[["mesenchyme"]]=sim.mtx[["mesenchyme"]][!duplicated(sim.mtx[["mesenchyme"]]$unique),];dim(sim.mtx[["mesenchyme"]])
-
-## keep unique comparison: non-mesenchyme, same motifs
-tmp2=readRDS("~/scATAC/motifenrich/forStamp/MotifSimilarity_pairwiseComparison_freq2_forNonMschymEach.rds")
-names(tmp2);tmp2$mschym=NULL
-test.mtx=NULL
-for(i in 1:length(tmp2)){
-  tmp2[[i]]$unique=paste0(sapply(strsplit(tmp2[[i]]$motif1,","),"[",2),",",
-                            sapply(strsplit(tmp2[[i]]$motif2,","),"[",2))
-  tmp2[[i]]=tmp2[[i]][!duplicated(tmp2[[i]]$unique),]
-  tmp2[[i]]$celltype=names(tmp2)[i]
-  tmp.mtx=tmp2[[i]][,c("score","category","unique","celltype")]
-  test.mtx=rbind(test.mtx,tmp.mtx)
-}
-table(test.mtx$celltype)
-sim.mtx[["nonMesenchyme-sameMotifs"]]=test.mtx
-
-## keep unique comparison: non-mesenchyme, different motifs
-tmp2=readRDS("~/scATAC/motifenrich/forStamp/MotifSimilarity_pairwiseComparison_freq2_forNonMschymEach_differentMotifs.rds")
-names(tmp2);tmp2$mesenchyme=NULL
-test.mtx=NULL
-for(i in 1:length(tmp2)){
-  tmp2[[i]]$unique=paste0(sapply(strsplit(tmp2[[i]]$motif1,","),"[",2),",",
-                          sapply(strsplit(tmp2[[i]]$motif2,","),"[",2))
-  tmp2[[i]]=tmp2[[i]][!duplicated(tmp2[[i]]$unique),]
-  tmp2[[i]]$celltype=names(tmp2)[i]
-  tmp.mtx=tmp2[[i]][,c("score","category","unique","celltype")]
-  test.mtx=rbind(test.mtx,tmp.mtx)
-}
-table(test.mtx$celltype)
-sim.mtx[["nonMesenchyme-diffMotifs"]]=test.mtx
-
-```
-
-```{r, message=FALSE, warning=FALSE, echo=TRUE}
-combn.mtx=rbind(sim.mtx$mesenchyme[,1:3],
-                sim.mtx$`nonMesenchyme-sameMotifs`[,1:3],
-                sim.mtx$`nonMesenchyme-diffMotifs`[,1:3])
-combn.mtx$broad=c(rep("Mschym",nrow(sim.mtx$mesenchyme)),
-                  rep("nonMschym.sameTF",nrow(sim.mtx$`nonMesenchyme-sameMotifs`)),
-                  rep("nonMschym.diffTF",nrow(sim.mtx$`nonMesenchyme-diffMotifs`)))
-
-combn.mtx$broad=factor(combn.mtx$broad,levels = c("Mschym","nonMschym.sameTF","nonMschym.diffTF"))
-p1=ggplot(combn.mtx,aes(x=broad, y=score)) +
+p2.1=ggplot(sim.mtx,aes(x=broad, y=score)) +
   #scale_fill_manual(values=c("#FFE78A", "#FFC0CB", "#8BD6FF")) +
   geom_boxplot(outlier.colour="white") + #(draw_quantiles = c(.50))
   stat_summary(fun.y=mean, geom="point", shape=23, size=4) +
@@ -220,13 +146,12 @@ p1=ggplot(combn.mtx,aes(x=broad, y=score)) +
         axis.text.x = element_text(size=10,angle=-30,hjust=0.1),
         axis.text.y = element_text(size=10),
         axis.title = element_text(size=15))
-p1
-
+p2.1
 ```
 
 ```{r, message=FALSE, warning=FALSE, echo=TRUE}
-pdf(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts/fig4/celltypeBased_MotifSimilarity_3groups.pdf"),height = 4,width = 6)
-p1
+pdf(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts/fig4/celltypeBased_MotifSimilarity_2groupsDiffMotifs.pdf"),height = 4,width = 6)
+p2.1
 dev.off()
 ```
 
