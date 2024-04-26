@@ -1,6 +1,6 @@
 # skeletoConvergence
 
-<img src="readme_figs/a_summary.png" width="700">
+<img src="readme_figs/a_brief.png" width="700">
 
 Chondrogenic cells of the vertebrate skeleton appear similar in all vertebrate body parts, yet they originate from molecularly distinct mesenchymal precursor pools of two different germ layers: the mesoderm, for the axial and appendicular skeleton, and the ectoderm, for the craniofacial skeleton. During their maturation, a spatiotemporally controlled transcriptional recoding thus appears to result in the convergent specification of functionally analogous skeletal cell types. 
 
