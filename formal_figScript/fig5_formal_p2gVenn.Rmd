@@ -215,8 +215,31 @@ shared$peak=sapply(strsplit(rownames(shared),","),"[",2)
 shared$trend=sapply(strsplit(rownames(shared),","),"[",3)
 length(unique(shared$gene)); table(shared$gene)[order(-table(shared$gene))][1:50]
 
-write.table(shared,"/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts/fig5/p2g_venn_absCutoff0.5_shared.txt",sep = "\t",quote = F)
-write.table(venn.mtx,"/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts/fig5/p2g_venn_absCutoff0.5_mtx.txt",sep = "\t",quote = F)
+write.table(shared,"/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts/fig5/p2g_venn_absCutoff0.5_sharedUnique.txt",sep = "\t",quote = F)
+write.table(venn.mtx,"/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts/fig5/p2g_venn_absCutoff0.5_mtxUnique.txt",sep = "\t",quote = F)
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+p2g.pairs=unique(c(p2g.lns$nasal$peakName,p2g.lns$somite$peakName,p2g.lns$limb$peakName))
+venn.mtx=data.frame(nasal=rep(0,length(p2g.pairs)),
+                    somite=rep(0,length(p2g.pairs)),
+                    limb=rep(0,length(p2g.pairs)))
+rownames(venn.mtx)=p2g.pairs
+venn.mtx[rownames(venn.mtx) %in% p2g.lns$nasal$unique,"nasal"]=1
+venn.mtx[rownames(venn.mtx) %in% p2g.lns$somite$unique,"somite"]=1
+venn.mtx[rownames(venn.mtx) %in% p2g.lns$limb$unique,"limb"]=1
+write.table(venn.mtx,"/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts/fig5/p2g_venn_absCutoff0.5_peakName.txt",sep = "\t",quote = F)
+
+p2g.pairs=unique(c(p2g.lns$nasal$geneName,p2g.lns$somite$geneName,p2g.lns$limb$geneName))
+venn.mtx=data.frame(nasal=rep(0,length(p2g.pairs)),
+                    somite=rep(0,length(p2g.pairs)),
+                    limb=rep(0,length(p2g.pairs)))
+rownames(venn.mtx)=p2g.pairs
+venn.mtx[rownames(venn.mtx) %in% p2g.lns$nasal$unique,"nasal"]=1
+venn.mtx[rownames(venn.mtx) %in% p2g.lns$somite$unique,"somite"]=1
+venn.mtx[rownames(venn.mtx) %in% p2g.lns$limb$unique,"limb"]=1
+write.table(venn.mtx,"/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts/fig5/p2g_venn_absCutoff0.5_geneName.txt",sep = "\t",quote = F)
 
 ```
 

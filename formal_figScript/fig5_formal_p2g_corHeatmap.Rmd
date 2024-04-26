@@ -202,6 +202,8 @@ plot.new();print(p4.c2)
 plot.new();print(p4.c3)
 dev.off()
 
+write.table(p2g.cor.filter,"/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scATAC/peak2gene/p2g_lns_correlation_used.txt",sep = "\t",quote = F)
+
 ```
 
 # log
