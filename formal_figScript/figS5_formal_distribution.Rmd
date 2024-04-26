@@ -98,15 +98,19 @@ dim(gene.mtx[gene.mtx$nasal>=1 & gene.mtx$somite>=1 & gene.mtx$limb>=1,])
 ```
 
 ```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.width=5}
-my.origins=c("limb","somite","nasal")
+my.origins=c("nasal","somite","limb")
 
 pdf(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts/figS5/p2g_distribution_CRE.pdf"),width = 6,height = 4)
 for(i in 1:length(my.origins)){
   tmp.origin=my.origins[i]
   tmp.gene=gene.mtx[gene.mtx[,tmp.origin]>=1,]
   pknum=data.frame(gene=rownames(tmp.gene), cisNum=as.numeric(tmp.gene[,tmp.origin]))
+  print(quantile(pknum$cisNum))
+  print(mean(pknum$cisNum))
+
   p1=ggplot(pknum,aes(x=cisNum))+
     geom_histogram(color="black", fill="lightblue",binwidth = 1) +
+    geom_vline(aes(xintercept = median(cisNum)),col='black',size=1,lty="dashed") +
     theme_classic() + ggtitle(paste0("",tmp.origin)) +
     xlab("number of CREs per gene")
   print(p1)
@@ -126,14 +130,18 @@ peak.mtx$somite=table(p2g.lns$somite$peakName)[cre]
 peak.mtx$limb=table(p2g.lns$limb$peakName)[cre]
 peak.mtx[is.na(peak.mtx)]=0
 
-my.origins=c("limb","somite","nasal")
+my.origins=c("nasal","somite","limb")
 pdf(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts/figS5/p2g_distribution_target.pdf"),width = 6,height = 4)
 for(i in 1:length(my.origins)){
   tmp.origin=my.origins[i]
   tmp.peak=peak.mtx[peak.mtx[,tmp.origin]>=1,]
   pknum=data.frame(gene=rownames(tmp.peak), cisNum=as.numeric(tmp.peak[,tmp.origin]))
+  print(quantile(pknum$cisNum))
+  print(mean(pknum$cisNum))
+  
   p1=ggplot(pknum,aes(x=cisNum))+
     geom_histogram(color="black", fill="lightblue",binwidth = 1) +
+    geom_vline(aes(xintercept = median(cisNum)),col='black',size=1,lty="dashed") +
     theme_classic() + ggtitle(paste0("",tmp.origin)) +
     xlab("number of targets per CRE")
   print(p1)
