@@ -1,0 +1,289 @@
+---
+title: "temporally changed genes"
+output: 
+  html_document:
+    df_print: paged
+  html_notebook:
+editor_options:
+  chunk_output_type: inline
+---
+
+use the result from previous analysis, generate figures.
+
+```{r setup, message=FALSE, warning=FALSE, echo=FALSE}
+# packages
+library(RColorBrewer);library(reshape2)
+library(pheatmap);library(dplyr)
+library(ggplot2);library(viridis)
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+save_pheatmap_pdf <- function(x, filename, width=6, height=4) {
+   stopifnot(!missing(x))
+   stopifnot(!missing(filename))
+   pdf(filename, width=width, height=height)
+   grid::grid.newpage()
+   grid::grid.draw(x$gtable)
+   dev.off()
+}
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+#gene name info
+gene.info=read.table("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/ensembl97_geneinfo.txt",
+                     sep="\t",header = TRUE,row.names = 1,stringsAsFactors = FALSE)
+gene.info[gene.info$genename=="","genename"]=rownames(gene.info[gene.info$genename=="",])
+gene.info$genename=toupper(gene.info$genename)
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+# 10 bins or 40 bins
+extra="" #"" for 10 bins;"40bins_"
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+# temporally expressed genes (restricted by percent of expressed cells)
+gencls.n=read.table(paste0("~/figure_drafts/temporal_scrnaGeneCluster_","nasal",".txt"),sep = "\t")
+gencls.s=read.table(paste0("~/figure_drafts/temporal_scrnaGeneCluster_","somite",".txt"),sep = "\t")
+gencls.l=read.table(paste0("~/figure_drafts/temporal_scrnaGeneCluster_","limb",".txt"),sep = "\t")
+
+#venn=read.table("~/figure_drafts/temporallyPtimeGenes_scrna.txt",sep = "\t")
+```
+
+## nasal
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+origin="nasal"
+my.average=read.table(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/pseudotime/temporal_scrnaPtbinMatrix_",extra,origin,".txt"),sep = "\t")
+```
+
+### markers
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.width=6,fig.height=5}
+# plot side by side
+gene.selected=gencls.n$genename
+dynamics.rna=my.average[gene.selected,]
+
+log=FALSE;scale = TRUE;smooth = F
+if(log){
+  # translate, then transform: log10(Y + 1 - min(Y))
+  dynamics.rna=log2(dynamics.rna+1)
+}
+# cubic smoothing spline
+if(smooth){
+  dynamics.rna <- t(apply(dynamics.rna,1,function(x){smooth.spline(x,df=3)$y}))
+}
+# scaled
+if(scale){
+  dynamics.rna=t(scale(t(dynamics.rna)))
+}
+
+dynamics.rna[is.na(dynamics.rna)]=0
+
+break3=seq(-2.5, 3, by=0.05)
+col3=colorRampPalette(c("white","grey80","black"))(length(break3))
+#col3=colorRampPalette(viridis(10))(length(break3))
+pt1.rna=pheatmap(
+  mat               = dynamics.rna,
+  border_color      = NA,
+  show_colnames     = TRUE, show_rownames     = TRUE,
+  cluster_rows=T, cluster_cols = FALSE, 
+  drop_levels       = TRUE,
+  fontsize_row = 5, fontsize_col = 3, silent = TRUE,
+  #annotation_row    = anno$row, annotation_colors = anno$color,
+  main              = paste0(origin,": gene expression dynamics"),
+  color = col3,
+  breaks = break3
+)
+plot.new(); print(pt1.rna)
+
+save_pheatmap_pdf(pt1.rna,paste0("~/figure_drafts/figS3_ptimeHeatmap_scrnaAll_N10_",origin,"_temporalGenes.pdf"), width=4, height=10)
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+pdf(paste0("~/figure_drafts/figS3_ptimeHeatmap_scrnaAll_N10_",origin,"_temporalClsGenes.pdf"), width=4, height=5)
+plot.new()
+for(i in 1:max(gencls.n$hkmeans)){
+  tmp.gene=gencls.n[gencls.n$hkmeans==i,"genename"]
+  dynamics.tmp=dynamics.rna[tmp.gene,]
+  pt1.rna=pheatmap(
+    mat               = dynamics.tmp,
+    border_color      = NA,
+    show_colnames     = TRUE, show_rownames     = TRUE,
+    cluster_rows=T, cluster_cols = FALSE, 
+    drop_levels       = TRUE, treeheight_row = 0,
+    fontsize_row = 5, fontsize_col = 3, silent = TRUE,
+    #annotation_row    = anno$row, annotation_colors = anno$color,
+    main              = paste0(origin,": gene expression dynamics, hkmeans cls:",i),
+    color = col3,
+    breaks = break3
+  )
+  plot.new(); 
+  print(pt1.rna)
+}
+dev.off()
+```
+
+## somite
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+origin="somite"
+my.average=read.table(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/pseudotime/temporal_scrnaPtbinMatrix_",extra,origin,".txt"),sep = "\t")
+```
+
+### markers
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.width=6,fig.height=5}
+# plot side by side
+gene.selected=gencls.s$genename
+dynamics.rna=my.average[gene.selected,]
+
+log=FALSE;scale = TRUE;smooth = F
+if(log){
+  # translate, then transform: log10(Y + 1 - min(Y))
+  dynamics.rna=log2(dynamics.rna+1)
+}
+# cubic smoothing spline
+if(smooth){
+  dynamics.rna <- t(apply(dynamics.rna,1,function(x){smooth.spline(x,df=3)$y}))
+}
+# scaled
+if(scale){
+  dynamics.rna=t(scale(t(dynamics.rna)))
+}
+
+dynamics.rna[is.na(dynamics.rna)]=0
+
+break3=seq(-2.5, 3, by=0.05)
+col3=colorRampPalette(c("white","grey80","black"))(length(break3))
+#col3=colorRampPalette(viridis(10))(length(break3))
+pt1.rna=pheatmap(
+  mat               = dynamics.rna,
+  border_color      = NA,
+  show_colnames     = TRUE, show_rownames     = TRUE,
+  cluster_rows=T, cluster_cols = FALSE, 
+  drop_levels       = TRUE,
+  fontsize_row = 5, fontsize_col = 3, silent = TRUE,
+  #annotation_row    = anno$row, annotation_colors = anno$color,
+  main              = paste0(origin,": gene expression dynamics"),
+  color = col3,
+  breaks = break3
+)
+plot.new(); print(pt1.rna)
+
+save_pheatmap_pdf(pt1.rna,paste0("~/figure_drafts/figS3_ptimeHeatmap_scrnaAll_N10_",origin,"_temporalGenes.pdf"), width=4, height=10)
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+pdf(paste0("~/figure_drafts/figS3_ptimeHeatmap_scrnaAll_N10_",origin,"_temporalClsGenes.pdf"), width=4, height=5)
+plot.new()
+for(i in 1:max(gencls.s$hkmeans)){
+  tmp.gene=gencls.s[gencls.s$hkmeans==i,"genename"]
+  dynamics.tmp=dynamics.rna[tmp.gene,]
+  pt1.rna=pheatmap(
+    mat               = dynamics.tmp,
+    border_color      = NA,
+    show_colnames     = TRUE, show_rownames     = TRUE,
+    cluster_rows=T, cluster_cols = FALSE, 
+    drop_levels       = TRUE, treeheight_row = 0,
+    fontsize_row = 5, fontsize_col = 3, silent = TRUE,
+    #annotation_row    = anno$row, annotation_colors = anno$color,
+    main              = paste0(origin,": gene expression dynamics, hkmeans cls:",i),
+    color = col3,
+    breaks = break3
+  )
+  plot.new(); 
+  print(pt1.rna)
+}
+dev.off()
+```
+
+## limb
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+origin="limb"
+my.average=read.table(paste0("/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/pseudotime/temporal_scrnaPtbinMatrix_",extra,origin,".txt"),sep = "\t")
+```
+
+### markers
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.width=6,fig.height=5}
+# plot side by side
+gene.selected=gencls.l$genename
+dynamics.rna=my.average[gene.selected,]
+
+log=FALSE;scale = TRUE;smooth = F
+if(log){
+  # translate, then transform: log10(Y + 1 - min(Y))
+  dynamics.rna=log2(dynamics.rna+1)
+}
+# cubic smoothing spline
+if(smooth){
+  dynamics.rna <- t(apply(dynamics.rna,1,function(x){smooth.spline(x,df=3)$y}))
+}
+# scaled
+if(scale){
+  dynamics.rna=t(scale(t(dynamics.rna)))
+}
+
+dynamics.rna[is.na(dynamics.rna)]=0
+
+break3=seq(-2.5, 3, by=0.05)
+col3=colorRampPalette(c("white","grey80","black"))(length(break3))
+#col3=colorRampPalette(viridis(10))(length(break3))
+pt1.rna=pheatmap(
+  mat               = dynamics.rna,
+  border_color      = NA,
+  show_colnames     = TRUE, show_rownames     = TRUE,
+  cluster_rows=T, cluster_cols = FALSE, 
+  drop_levels       = TRUE,
+  fontsize_row = 5, fontsize_col = 3, silent = TRUE,
+  #annotation_row    = anno$row, annotation_colors = anno$color,
+  main              = paste0(origin,": gene expression dynamics"),
+  color = col3,
+  breaks = break3
+)
+plot.new(); print(pt1.rna)
+
+save_pheatmap_pdf(pt1.rna,paste0("~/figure_drafts/figS3_ptimeHeatmap_scrnaAll_N10_",origin,"_temporalGenes.pdf"), width=4, height=10)
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+pdf(paste0("~/figure_drafts/figS3_ptimeHeatmap_scrnaAll_N10_",origin,"_temporalClsGenes.pdf"), width=4, height=5)
+plot.new()
+for(i in 1:max(gencls.l$hkmeans)){
+  tmp.gene=gencls.l[gencls.l$hkmeans==i,"genename"]
+  dynamics.tmp=dynamics.rna[tmp.gene,]
+  pt1.rna=pheatmap(
+    mat               = dynamics.tmp,
+    border_color      = NA,
+    show_colnames     = TRUE, show_rownames     = TRUE,
+    cluster_rows=T, cluster_cols = FALSE, 
+    drop_levels       = TRUE, treeheight_row = 0,
+    fontsize_row = 5, fontsize_col = 3, silent = TRUE,
+    #annotation_row    = anno$row, annotation_colors = anno$color,
+    main              = paste0(origin,": gene expression dynamics, hkmeans cls:",i),
+    color = col3,
+    breaks = break3
+  )
+  plot.new(); 
+  print(pt1.rna)
+}
+dev.off()
+```
+
+## log
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+sessionInfo()
+```
+
