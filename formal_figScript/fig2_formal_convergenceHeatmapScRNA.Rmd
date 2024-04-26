@@ -271,6 +271,10 @@ tops.all=c(tops.limb$gene,tops.nasal$gene,tops.somite$gene)
 tops.all=tops.all[!duplicated(tops.all)];length(tops.all);
 geneset1=tops.all[tops.all %in% expressed];length(geneset1)
 
+my.path="/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts"
+write.table(geneset1,paste0(my.path,"/fig2/glist_fig2panelA.txt"),
+            sep = "\t",quote = F)
+
 ```
 
 ```{r, message=FALSE, warning=FALSE, echo=TRUE}
@@ -301,6 +305,8 @@ geneset2=tops.all[tops.all %in% expressed];length(geneset2)
 #geneset3: expressed TF genes
 tf=read.table("/scicore/home/tschoppp/GROUP/references/genomes/TFs/Gallus_gallus_TF_AnimalTFDB3_edited.txt", sep = "\t", header = T)
 express.tf=expressed[(expressed %in% as.character(tf$Ensembl))]
+write.table(express.tf,paste0(my.path,"/fig2/glist_fig2panelB.txt"),
+            sep = "\t",quote = F)
 
 
 #geneset4: expressed matrisome genes
@@ -337,27 +343,12 @@ my.subset=mcls[!(mcls %in% c("limb_mesenchyme posterior"))]
 my.subset
 ```
 
-### top DEGs: 859
-
-```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.width=15,fig.height=9}
-##### mesenchyme only
-length(geneset2)
-correlation1=average.cor(my.integrated=subset(my.integrated,cell=names(Idents(my.integrated)[(Idents(my.integrated) %in% my.subset)])), gene.used=geneset2, method.used="spearman",assay.used="integrated",color.origin=color.origin,color.ctype=color.ctype,color.gradient = color.gradient)
-
-correlation2=average.cor(my.integrated=subset(my.integrated,cell=names(Idents(my.integrated)[(Idents(my.integrated) %in% my.subset)])), gene.used=geneset2, method.used="pearson",assay.used="integrated",log = TRUE,color.origin=color.origin,color.ctype=color.ctype,color.gradient = color.gradient)
-
-#save_pheatmap_pdf(correlation1$plot,"/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/figure_drafts/figure2_C1.pdf", width=12, height=8)
-
-```
-
 ### top DEGs (mesenchyme): 149
 
 ```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.width=15,fig.height=9}
 ##### mesenchyme only
 length(geneset1)
 correlation1=average.cor(my.integrated=subset(my.integrated,cell=names(Idents(my.integrated)[(Idents(my.integrated) %in% my.subset)])), gene.used=geneset1, method.used="spearman",assay.used="integrated",color.origin=color.origin,color.ctype=color.ctype,color.gradient = color.gradient)
-
-correlation2=average.cor(my.integrated=subset(my.integrated,cell=names(Idents(my.integrated)[(Idents(my.integrated) %in% my.subset)])), gene.used=geneset1, method.used="pearson",assay.used="integrated",log = TRUE,color.origin=color.origin,color.ctype=color.ctype,color.gradient = color.gradient)
 
 #save_pheatmap_pdf(correlation1$plot,"/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/figure_drafts/figure2_C1.pdf", width=12, height=8)
 
@@ -370,23 +361,10 @@ correlation2=average.cor(my.integrated=subset(my.integrated,cell=names(Idents(my
 length(express.tf)
 correlation1=average.cor(my.integrated=subset(my.integrated,cell=names(Idents(my.integrated)[(Idents(my.integrated) %in% my.subset)])), gene.used=express.tf, method.used="spearman",assay.used="integrated",color.origin=color.origin,color.ctype=color.ctype,color.gradient = color.gradient)
 
-correlation2=average.cor(my.integrated=subset(my.integrated,cell=names(Idents(my.integrated)[(Idents(my.integrated) %in% my.subset)])), gene.used=express.tf, method.used="pearson",assay.used="integrated",log = TRUE,color.origin=color.origin,color.ctype=color.ctype,color.gradient = color.gradient)
-
 #save_pheatmap_pdf(correlation1$plot,"/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/figure_drafts/figure2_C1.pdf", width=12, height=8)
 
 ```
 
-```{r, message=FALSE, warning=FALSE, echo=TRUE,fig.width=15,fig.height=9}
-#reduce the size of geneset
-set.seed(321)
-geneset3=sample(express.tf,length(geneset1));length(geneset3)
-correlation1=average.cor(my.integrated=subset(my.integrated,cell=names(Idents(my.integrated)[(Idents(my.integrated) %in% my.subset)])), gene.used=geneset3, method.used="spearman",assay.used="integrated",color.origin=color.origin,color.ctype=color.ctype,color.gradient = color.gradient)
-
-correlation2=average.cor(my.integrated=subset(my.integrated,cell=names(Idents(my.integrated)[(Idents(my.integrated) %in% my.subset)])), gene.used=geneset3, method.used="pearson",assay.used="integrated",log = TRUE,color.origin=color.origin,color.ctype=color.ctype,color.gradient = color.gradient)
-
-#save_pheatmap_pdf(correlation1$plot,"/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/scRNA/figure_drafts/figure2_C1.pdf", width=12, height=8)
-
-```
 
 ## log
 
