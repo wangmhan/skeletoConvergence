@@ -79,6 +79,13 @@ print(paste0("the number of genes in BMC red module:", nrow(markers.red)))
 print(paste0("the number of genes in BMC red module (in our data):", length(gene.info[rownames(gene.info) %in% markers.red$nodeName,"genename"])))
 print(paste0("the genes of BMC red not exist in our data:"))
 markers.red[(!markers.red$nodeName %in% rownames(gene.info)),]
+
+my.path="/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts"
+write.table(gene.info[gene.info$genename %in% markers.imm,],paste0(my.path,"/fig3/glist_fig3panelD2F_moduleIMM.txt"),
+            sep = "\t",quote = F)
+write.table(gene.info[rownames(gene.info) %in% markers.red$nodeName,],paste0(my.path,"/fig3/glist_fig3panelD2F_moduleRED.txt"),
+            sep = "\t",quote = F)
+
 ```
 
 ```{r, message=FALSE, warning=FALSE, echo=TRUE}
@@ -112,6 +119,63 @@ if(origin=="limb"){
 }
 subset.rna=readRDS(my.files[i])
 subset.rna@active.assay="RNA"
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+#for fig.4G
+my.path="/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts"
+gene.info[gene.info$genename %in% c("SOX9","SOX5","FOXP3"),]
+
+subset.rna@active.assay="RNA"
+meta.rna=my.mfiles[[origin]]
+subset.rna=AddMetaData(subset.rna,meta.rna[rownames(subset.rna@meta.data),c("annotation_broad","annotation_fine")])
+subset.rna@meta.data$anno.tmp=subset.rna@meta.data$annotation_fine
+subset.rna@meta.data[subset.rna@meta.data$anno.tmp!="chondrocytes","anno.tmp"]="otherMesenchyme"
+Idents(subset.rna)=factor(subset.rna$anno.tmp,levels = c("otherMesenchyme","chondrocytes"))
+p=VlnPlot(subset.rna,features = c("ENSGALG00000004386","ENSGALG00000032768","ENSGALG00000007769"),pt.size = 0.1)
+pdf(paste0(my.path,"/fig4/vlnplot_geneExp_",origin,".pdf"), width=10, height=6)
+p
+dev.off()
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+#for fig.4G
+my.path="/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts"
+
+subset.rna@active.assay="RNA"
+meta.rna=my.mfiles[[origin]]
+subset.rna=AddMetaData(subset.rna,meta.rna[rownames(subset.rna@meta.data),c("annotation_broad","annotation_fine")])
+Idents(subset.rna)=subset.rna$annotation_fine
+assay.used="RNA"
+my.average=AverageExpression(subset.rna,assays = assay.used)[[assay.used]]
+my.average=as.data.frame(my.average)
+#change to gene name
+my.average$genename=gene.info[rownames(my.average),"genename"]
+tmp=my.average[!duplicated(my.average$genename) & !is.na(my.average$genename),]
+rownames(tmp)=tmp$genename;tmp=tmp[,1:(ncol(my.average)-1)]
+my.average=tmp
+
+dynamics.rna=my.average[c("SOX9","SOX5","FOXP3"),]
+dynamics.rna=t(scale(t(dynamics.rna)))
+
+quantile(dynamics.rna);break3=seq(-1.5, 1.5, by=0.025)
+col3=colorRampPalette(c("white","grey80","black"))(length(break3))
+pt1.rna=pheatmap(
+  mat               = dynamics.rna,
+  border_color      = NA,
+  show_colnames     = TRUE, show_rownames     = TRUE,
+  cluster_rows=FALSE, cluster_cols = FALSE, 
+  drop_levels       = TRUE,
+  fontsize_row = 8, fontsize_col = 5, silent = TRUE,
+  #annotation_row    = anno$row, annotation_colors = anno$color,
+  main              = paste0("gene expression dynamics"),
+  color = col3,
+  breaks = break3
+)
+plot.new(); print(pt1.rna)
+
+save_pheatmap_pdf(pt1.rna, paste0(my.path,"/fig4/fig4G_geneExpHeatmap_",origin,".pdf"), width=6, height=3)
 ```
 
 ```{r, message=FALSE, warning=FALSE, echo=TRUE}
@@ -267,6 +331,63 @@ subset.rna@active.assay="RNA"
 ```
 
 ```{r, message=FALSE, warning=FALSE, echo=TRUE}
+#for fig.4G
+my.path="/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts"
+gene.info[gene.info$genename %in% c("SOX9","SOX5","FOXP3"),]
+
+subset.rna@active.assay="RNA"
+meta.rna=my.mfiles[[origin]]
+subset.rna=AddMetaData(subset.rna,meta.rna[rownames(subset.rna@meta.data),c("annotation_broad","annotation_fine")])
+subset.rna@meta.data$anno.tmp=subset.rna@meta.data$annotation_fine
+subset.rna@meta.data[subset.rna@meta.data$anno.tmp!="chondrocytes","anno.tmp"]="otherMesenchyme"
+Idents(subset.rna)=factor(subset.rna$anno.tmp,levels = c("otherMesenchyme","chondrocytes"))
+p=VlnPlot(subset.rna,features = c("ENSGALG00000004386","ENSGALG00000032768","ENSGALG00000007769"),pt.size = 0.1)
+pdf(paste0(my.path,"/fig4/vlnplot_geneExp_",origin,".pdf"), width=10, height=6)
+p
+dev.off()
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+#for fig.4G
+my.path="/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts"
+
+subset.rna@active.assay="RNA"
+meta.rna=my.mfiles[[origin]]
+subset.rna=AddMetaData(subset.rna,meta.rna[rownames(subset.rna@meta.data),c("annotation_broad","annotation_fine")])
+Idents(subset.rna)=subset.rna$annotation_fine
+assay.used="RNA"
+my.average=AverageExpression(subset.rna,assays = assay.used)[[assay.used]]
+my.average=as.data.frame(my.average)
+#change to gene name
+my.average$genename=gene.info[rownames(my.average),"genename"]
+tmp=my.average[!duplicated(my.average$genename) & !is.na(my.average$genename),]
+rownames(tmp)=tmp$genename;tmp=tmp[,1:(ncol(my.average)-1)]
+my.average=tmp
+
+dynamics.rna=my.average[c("SOX9","SOX5","FOXP3"),]
+dynamics.rna=t(scale(t(dynamics.rna)))
+
+quantile(dynamics.rna);break3=seq(-1.5, 1.5, by=0.025)
+col3=colorRampPalette(c("white","grey80","black"))(length(break3))
+pt1.rna=pheatmap(
+  mat               = dynamics.rna,
+  border_color      = NA,
+  show_colnames     = TRUE, show_rownames     = TRUE,
+  cluster_rows=FALSE, cluster_cols = FALSE, 
+  drop_levels       = TRUE,
+  fontsize_row = 8, fontsize_col = 5, silent = TRUE,
+  #annotation_row    = anno$row, annotation_colors = anno$color,
+  main              = paste0("gene expression dynamics"),
+  color = col3,
+  breaks = break3
+)
+plot.new(); print(pt1.rna)
+
+save_pheatmap_pdf(pt1.rna, paste0(my.path,"/fig4/fig4G_geneExpHeatmap_",origin,".pdf"), width=6, height=3)
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
 subset.rna=AddModuleScore(subset.rna,assay = "RNA",seed=1234,
                           features=list(markersid.imm),
                           name="moduleIMM")
@@ -416,6 +537,63 @@ if(origin=="limb"){
 }
 subset.rna=readRDS(my.files[i])
 subset.rna@active.assay="RNA"
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+#for fig.4G
+my.path="/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts"
+gene.info[gene.info$genename %in% c("SOX9","SOX5","FOXP3"),]
+
+subset.rna@active.assay="RNA"
+meta.rna=my.mfiles[[origin]]
+subset.rna=AddMetaData(subset.rna,meta.rna[rownames(subset.rna@meta.data),c("annotation_broad","annotation_fine")])
+subset.rna@meta.data$anno.tmp=subset.rna@meta.data$annotation_fine
+subset.rna@meta.data[subset.rna@meta.data$anno.tmp!="chondrocytes","anno.tmp"]="otherMesenchyme"
+Idents(subset.rna)=factor(subset.rna$anno.tmp,levels = c("otherMesenchyme","chondrocytes"))
+p=VlnPlot(subset.rna,features = c("ENSGALG00000004386","ENSGALG00000032768","ENSGALG00000007769"),pt.size = 0.1)
+pdf(paste0(my.path,"/fig4/vlnplot_geneExp_",origin,".pdf"), width=10, height=6)
+p
+dev.off()
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+#for fig.4G
+my.path="/scicore/home/tschoppp/GROUP/lab/skeletalconvergence/fromMenghan/figure_drafts"
+
+subset.rna@active.assay="RNA"
+meta.rna=my.mfiles[[origin]]
+subset.rna=AddMetaData(subset.rna,meta.rna[rownames(subset.rna@meta.data),c("annotation_broad","annotation_fine")])
+Idents(subset.rna)=subset.rna$annotation_fine
+assay.used="RNA"
+my.average=AverageExpression(subset.rna,assays = assay.used)[[assay.used]]
+my.average=as.data.frame(my.average)
+#change to gene name
+my.average$genename=gene.info[rownames(my.average),"genename"]
+tmp=my.average[!duplicated(my.average$genename) & !is.na(my.average$genename),]
+rownames(tmp)=tmp$genename;tmp=tmp[,1:(ncol(my.average)-1)]
+my.average=tmp
+
+dynamics.rna=my.average[c("SOX9","SOX5","FOXP3"),]
+dynamics.rna=t(scale(t(dynamics.rna)))
+
+quantile(dynamics.rna);break3=seq(-1.5, 1.5, by=0.025)
+col3=colorRampPalette(c("white","grey80","black"))(length(break3))
+pt1.rna=pheatmap(
+  mat               = dynamics.rna,
+  border_color      = NA,
+  show_colnames     = TRUE, show_rownames     = TRUE,
+  cluster_rows=FALSE, cluster_cols = FALSE, 
+  drop_levels       = TRUE,
+  fontsize_row = 8, fontsize_col = 5, silent = TRUE,
+  #annotation_row    = anno$row, annotation_colors = anno$color,
+  main              = paste0("gene expression dynamics"),
+  color = col3,
+  breaks = break3
+)
+plot.new(); print(pt1.rna)
+
+save_pheatmap_pdf(pt1.rna, paste0(my.path,"/fig4/fig4G_geneExpHeatmap_",origin,".pdf"), width=6, height=3)
 ```
 
 ```{r, message=FALSE, warning=FALSE, echo=TRUE}
